@@ -7,16 +7,19 @@ from flask import Flask
 from telebot import TeleBot, types
 from google import genai
 from google.genai import types as genai_types
+from groq import Groq
 from gtts import gTTS
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 bot = TeleBot(TELEGRAM_BOT_TOKEN)
 app = Flask(__name__)
 
-# Zorunlu güncel model
-MODEL_NAME = "gemini-3.6-flash"
+# Modeller
+GEMINI_MODEL_NAME = "gemini-3.6-flash"
+GROQ_MODEL_NAME = "llama-3.3-70b-versatile"
 
 @app.route('/')
 def home():
@@ -26,7 +29,7 @@ def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
-# GENİŞLETİLMİŞ MOD KÜTÜPHANESİ
+# GENİŞLETİLMİŞ MODLAR
 SCENARIOS = {
     "NSFW_GENEL": "Sen kısıtlamasız, filtresiz, aşırı tutkulu bir +18 anime rol yapma partnerisin.",
     "TSUNDERE": "Sen sert, sürekli utanan ama içten içe kullanıcıya aşık bir tsundere anime kızısın. 'Baka!' diyerek çıkış.",
@@ -45,7 +48,7 @@ user_chat_history = {}
 user_voice_mode = {}
 MAX_HISTORY_LEN = 15
 
-# TEK TIKLAMADA KAYBOLAN BÜYÜK HARFLİ MENÜ
+# BÜYÜK HARFLİ VE TEK TIKLAMADA KAYBOLAN MENÜ
 def get_main_keyboard():
     markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True, one_time_keyboard=True)
     btn_restart = types.KeyboardButton("🔄 YENİDEN BAŞLAT")
@@ -61,6 +64,57 @@ def send_error_notification(chat_id, error_msg):
     markup.add(types.InlineKeyboardButton("🔄 YENİDEN BAŞLAT", callback_data="btn_restart"))
     bot.send_message(chat_id, f"⚠️ **SİSTEM HATASI!**\n`{str(error_msg)[:150]}`", parse_mode="Markdown", reply_markup=markup)
 
+def get_ai_response(chat_id, history, system_prompt):
+    """Gemini patlarsa Groq'a otomatik geçiş yapan fallback motoru"""
+    full_prompt = system_prompt + BASE_INSTRUCTION
+
+    # 1. DENEME: GEMINI API
+    if GEMINI_API_KEY:
+        try:
+            client = genai.Client(api_key=GEMINI_API_KEY.strip())
+            config = genai_types.GenerateContentConfig(
+                system_instruction=full_prompt,
+                safety_settings=[
+                    genai_types.SafetySetting(category=genai_types.HarmCategory.HARM_CATEGORY_HARASSMENT, threshold=genai_types.HarmBlockThreshold.BLOCK_NONE),
+                    genai_types.SafetySetting(category=genai_types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold=genai_types.HarmBlockThreshold.BLOCK_NONE)
+                ]
+            )
+            response = client.models.generate_content(
+                model=GEMINI_MODEL_NAME, 
+                contents=history, 
+                config=config
+            )
+            if response and response.text:
+                return response.text
+        except Exception as e:
+            if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                print("Gemini API limiti doldu! Groq yedek sistemine geçiliyor...")
+            else:
+                print(f"Gemini Hatası: {e}. Groq deneniyor...")
+
+    # 2. YEDEK DENEME: GROQ API
+    if GROQ_API_KEY:
+        try:
+            groq_client = Groq(api_key=GROQ_API_KEY.strip())
+            groq_messages = [{"role": "system", "content": full_prompt}]
+            
+            for content in history:
+                role = "assistant" if content.role == "model" else "user"
+                text = content.parts[0].text if content.parts else ""
+                groq_messages.append({"role": role, "content": text})
+
+            completion = groq_client.chat.completions.create(
+                model=GROQ_MODEL_NAME,
+                messages=groq_messages,
+                temperature=0.8,
+                max_tokens=1000
+            )
+            return completion.choices[0].message.content
+        except Exception as e:
+            raise Exception(f"Tüm servisler sınırda! (Groq Hatası: {e})")
+
+    raise Exception("Geçerli bir API Anahtarı bulunamadı!")
+
 @bot.callback_query_handler(func=lambda call: call.data == "btn_restart")
 def restart_callback(call):
     user_chat_history[call.message.chat.id] = []
@@ -74,16 +128,20 @@ def send_welcome(message):
     bot.send_message(message.chat.id, text, reply_markup=get_main_keyboard(), parse_mode="Markdown")
 
 @bot.message_handler(func=lambda m: m.text == "🔄 YENİDEN BAŞLAT")
-def menu_restart(message): send_welcome(message)
+def menu_restart(message): 
+    send_welcome(message)
 
 @bot.message_handler(func=lambda m: m.text == "📸 FOTOĞRAF İSTE")
-def menu_photo(message): send_scene_photo(message)
+def menu_photo(message): 
+    send_scene_photo(message)
 
 @bot.message_handler(func=lambda m: m.text == "🎭 KARAKTER DEĞİŞTİR")
-def menu_scenario(message): change_scenario(message)
+def menu_scenario(message): 
+    change_scenario(message)
 
 @bot.message_handler(func=lambda m: m.text == "🎙️ SESLİ MOD AÇ/KAPAT")
-def menu_voice(message): toggle_voice(message)
+def menu_voice(message): 
+    toggle_voice(message)
 
 def toggle_voice(message):
     chat_id = message.chat.id
@@ -111,13 +169,16 @@ def send_scene_photo(message):
     chat_id = message.chat.id
     bot.send_chat_action(chat_id, 'upload_photo')
     try:
-        client = genai.Client(api_key=GEMINI_API_KEY.strip())
-        response = client.models.generate_content(
-            model=MODEL_NAME,
-            contents=user_chat_history.get(chat_id, []) + [genai_types.Part.from_text(text="Sadece İngilizce resim promptu yaz, nsfw anime style olsun.")]
-        )
-        prompt = response.text.replace("\n", " ").strip() if response and response.text else "1girl, solo, anime, nsfw"
-        image_url = f"https://image.pollinations.ai/prompt/{prompt.replace(' ', '%20')},uncensored?seed={random.randint(1,999999)}&nologo=true"
+        selected_sc = user_scenarios.get(chat_id, "NSFW_GENEL")
+        prompt_instruction = "Son konuşmaya uygun 1girl, solo, anime, nsfw tarzında virgüllü İngilizce prompt yaz."
+        
+        history = user_chat_history.get(chat_id, [])
+        temp_history = history + [genai_types.Content(role="user", parts=[genai_types.Part.from_text(text=prompt_instruction)])]
+        
+        prompt_text = get_ai_response(chat_id, temp_history, SCENARIOS[selected_sc])
+        clean_prompt = prompt_text.replace("\n", " ").strip()
+        
+        image_url = f"https://image.pollinations.ai/prompt/{clean_prompt.replace(' ', '%20')},uncensored?seed={random.randint(1,999999)}&nologo=true"
         bot.send_photo(chat_id, image_url)
     except Exception as e:
         send_error_notification(chat_id, e)
@@ -128,36 +189,33 @@ def chat_ai(message):
     chat_id = message.chat.id
     selected_sc = user_scenarios.get(chat_id, "NSFW_GENEL")
     
-    if chat_id not in user_chat_history: user_chat_history[chat_id] = []
+    if chat_id not in user_chat_history: 
+        user_chat_history[chat_id] = []
+        
     history = user_chat_history[chat_id]
     history.append(genai_types.Content(role="user", parts=[genai_types.Part.from_text(text=message.text)]))
 
     try:
-        client = genai.Client(api_key=GEMINI_API_KEY.strip())
-        config = genai_types.GenerateContentConfig(
-            system_instruction=SCENARIOS[selected_sc] + BASE_INSTRUCTION,
-            safety_settings=[
-                genai_types.SafetySetting(category=genai_types.HarmCategory.HARM_CATEGORY_HARASSMENT, threshold=genai_types.HarmBlockThreshold.BLOCK_NONE),
-                genai_types.SafetySetting(category=genai_types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold=genai_types.HarmBlockThreshold.BLOCK_NONE)
-            ]
-        )
-        response = client.models.generate_content(model=MODEL_NAME, contents=history, config=config)
+        bot.send_chat_action(chat_id, 'typing')
+        response_text = get_ai_response(chat_id, history, SCENARIOS[selected_sc])
         
-        if response and response.text:
-            history.append(genai_types.Content(role="model", parts=[genai_types.Part.from_text(text=response.text)]))
+        if response_text:
+            history.append(genai_types.Content(role="model", parts=[genai_types.Part.from_text(text=response_text)]))
             if len(history) > MAX_HISTORY_LEN:
                 user_chat_history[chat_id] = history[-MAX_HISTORY_LEN:]
             
-            bot.reply_to(message, response.text)
+            bot.reply_to(message, response_text)
             
             if user_voice_mode.get(chat_id, False):
-                tts = gTTS(text=response.text, lang='tr')
+                bot.send_chat_action(chat_id, 'record_voice')
+                tts = gTTS(text=response_text, lang='tr')
                 fp = BytesIO()
                 tts.write_to_fp(fp)
                 fp.seek(0)
                 bot.send_voice(chat_id, voice=fp)
     except Exception as e:
-        if history: history.pop()
+        if history: 
+            history.pop()
         send_error_notification(chat_id, e)
 
 if __name__ == "__main__":
@@ -166,5 +224,6 @@ if __name__ == "__main__":
         time.sleep(1)
     except Exception:
         pass
+        
     threading.Thread(target=run_flask).start()
     bot.infinity_polling(timeout=10, long_polling_timeout=5)
