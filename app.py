@@ -15,7 +15,6 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 bot = TeleBot(TELEGRAM_BOT_TOKEN)
 app = Flask(__name__)
 
-# En stabil güncel Flash model ismi
 MODEL_NAME = "gemini-2.5-flash"
 
 @app.route('/')
@@ -43,19 +42,63 @@ user_chat_history = {}
 user_voice_mode = {}
 MAX_HISTORY_LEN = 15
 
-@bot.message_handler(commands=['start'])
-def send_welcome(message):
-    text = (
-        "👑 **+18 Gelişmiş AI Bot Aktif!**\n\n"
-        "📜 **Komutlar:**\n"
-        "`/senaryo` - Karakter kişiliğini değiştirir.\n"
-        "`/ses` - Sesli yanıt modunu açar/kapatır.\n"
-        "`/photo` - O anki durumun fotoğrafını atar.\n"
-        "`/ciz <metin>` - Özel görsel ürettirir.\n"
-        "`/temizle` - Hafızayı sıfırlar.\n\n"
-        "🎙️ *Bota sesli mesaj da gönderebilirsin!*"
+# Klavyenin altındaki sabit hızlı buton menüsü
+def get_main_keyboard():
+    markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
+    btn_restart = types.KeyboardButton("🔄 Yeniden Başlat")
+    btn_photo = types.KeyboardButton("📸 Fotoğraf İste")
+    btn_scenario = types.KeyboardButton("🎭 Karakter Değiştir")
+    btn_voice = types.KeyboardButton("🎙️ Sesli Modu Aç/Kapat")
+    markup.add(btn_restart, btn_photo)
+    markup.add(btn_scenario, btn_voice)
+    return markup
+
+# Hata Durumunda Bildirim Gönderme
+def send_error_notification(chat_id, error_msg):
+    markup = types.InlineKeyboardMarkup()
+    restart_btn = types.InlineKeyboardButton("🔄 Tek Tıkla Yeniden Başlat", callback_data="btn_restart")
+    markup.add(restart_btn)
+    
+    msg_text = (
+        "⚠️ **Bir sistem hatası algılandı!**\n\n"
+        f"🛠️ **Hata Detayı:** `{str(error_msg)[:200]}`\n\n"
+        "Aşağıdaki butona basarak botu hemen yeniden başlatabilirsin:"
     )
-    bot.reply_to(message, text, parse_mode="Markdown")
+    bot.send_message(chat_id, msg_text, parse_mode="Markdown", reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data == "btn_restart")
+def restart_callback(call):
+    chat_id = call.message.chat.id
+    user_chat_history[chat_id] = []
+    bot.answer_callback_query(call.id, "Bot belleği temizlendi!")
+    bot.send_message(chat_id, "🔄 **Bot başarıyla yeniden başlatıldı!**", reply_markup=get_main_keyboard(), parse_mode="Markdown")
+
+@bot.message_handler(commands=['start', 'restart'])
+def send_welcome(message):
+    chat_id = message.chat.id
+    user_chat_history[chat_id] = []
+    text = (
+        "👑 **+18 Gelişmiş AI Bot Yeniden Başlatıldı!**\n\n"
+        "Aşağıdaki menü butonlarını kullanarak bota hızlıca komut verebilirsin."
+    )
+    bot.send_message(chat_id, text, reply_markup=get_main_keyboard(), parse_mode="Markdown")
+
+# Alt Menü Buton Yakalayıcıları
+@bot.message_handler(func=lambda m: m.text == "🔄 Yeniden Başlat")
+def menu_restart(message):
+    send_welcome(message)
+
+@bot.message_handler(func=lambda m: m.text == "📸 Fotoğraf İste")
+def menu_photo(message):
+    send_scene_photo(message)
+
+@bot.message_handler(func=lambda m: m.text == "🎭 Karakter Değiştir")
+def menu_scenario(message):
+    change_scenario(message)
+
+@bot.message_handler(func=lambda m: m.text == "🎙️ Sesli Modu Aç/Kapat")
+def menu_voice(message):
+    toggle_voice(message)
 
 @bot.message_handler(commands=['ses'])
 def toggle_voice(message):
@@ -94,22 +137,19 @@ def clear_history(message):
     user_chat_history[chat_id] = []
     bot.reply_to(message, "🧠 **Sohbet hafızası sıfırlandı!**", parse_mode="Markdown")
 
-# --- YAZI YAZMAYAN, SADECE FOTOĞRAF GÖNDEREN /PHOTO ---
+# --- /PHOTO KOMUTU ---
 @bot.message_handler(commands=['photo'])
 def send_scene_photo(message):
     chat_id = message.chat.id
     if not GEMINI_API_KEY:
-        bot.reply_to(message, "⚠️ GEMINI_API_KEY bulunamadı!")
+        send_error_notification(chat_id, "GEMINI_API_KEY bulunamadı!")
         return
 
-    # Sadece üst barda "fotoğraf yükleniyor" ibaresi çıkar
     bot.send_chat_action(chat_id, 'upload_photo')
-
     history = user_chat_history.get(chat_id, [])
     
     try:
         client = genai.Client(api_key=GEMINI_API_KEY.strip())
-        
         prompt_instruction = (
             "Son konuşmanın durumuna göre karakterin şu an ne yaptığını anlatan İngilizce resim prompt'u yaz. "
             "Sadece virgülle ayrılmış İngilizce kelimeler kullan, asla Türkçe veya hikaye yazma! "
@@ -124,16 +164,14 @@ def send_scene_photo(message):
         )
         
         prompt_text = response.text.replace("\n", " ").strip() if response and response.text else "1girl, solo, anime, nsfw"
-
         enhanced_prompt = f"{prompt_text}, masterpiece, top quality, anime style, uncensored"
         seed = random.randint(1000, 999999)
         image_url = f"https://image.pollinations.ai/prompt/{enhanced_prompt.replace(' ', '%20')}?model=flux&seed={seed}&nologo=true&private=true&safe=false"
         
-        # Sadece fotoğraf gönderilir
         bot.send_photo(chat_id, image_url)
 
     except Exception as e:
-        bot.reply_to(message, f"⚠️ Fotoğraf hatası: {str(e)}")
+        send_error_notification(chat_id, e)
 
 @bot.message_handler(commands=['ciz'])
 def draw_image(message):
@@ -149,14 +187,14 @@ def draw_image(message):
     
     try:
         bot.send_photo(message.chat.id, image_url)
-    except Exception:
-        bot.reply_to(message, "Görsel üretilemedi.")
+    except Exception as e:
+        send_error_notification(message.chat.id, e)
 
 @bot.message_handler(content_types=['voice'])
 def handle_voice_message(message):
     chat_id = message.chat.id
     if not GEMINI_API_KEY:
-        bot.reply_to(message, "⚠️ GEMINI_API_KEY bulunamadı!")
+        send_error_notification(chat_id, "GEMINI_API_KEY bulunamadı!")
         return
 
     bot.send_chat_action(chat_id, 'record_voice')
@@ -190,15 +228,14 @@ def handle_voice_message(message):
         if response and response.text:
             process_and_reply(message, response.text)
         else:
-            bot.reply_to(message, "⚠️ Ses anlaşılamadı.")
+            send_error_notification(chat_id, "Ses anlaşılamadı.")
 
     except Exception as e:
-        bot.reply_to(message, f"⚠️ Ses Hatası: {str(e)}")
+        send_error_notification(chat_id, e)
 
 # NORMAL METİN SOHBETİ
 @bot.message_handler(func=lambda message: True)
 def chat_ai(message):
-    # Komutların metin gibi işlenmesini engeller
     if message.text.startswith('/'):
         return
 
@@ -209,7 +246,7 @@ def chat_ai(message):
     system_prompt = SCENARIOS[selected_sc] + BASE_INSTRUCTION
 
     if not GEMINI_API_KEY:
-        bot.reply_to(message, "⚠️ GEMINI_API_KEY bulunamadı!")
+        send_error_notification(chat_id, "GEMINI_API_KEY bulunamadı!")
         return
 
     bot.send_chat_action(chat_id, 'typing')
@@ -245,12 +282,12 @@ def chat_ai(message):
 
             process_and_reply(message, response.text)
         else:
-            bot.reply_to(message, "⚠️ Yanıt oluşturulamadı.")
+            send_error_notification(chat_id, "Google API boş yanıt üretti.")
 
     except Exception as e:
         if history:
             history.pop()
-        bot.reply_to(message, f"⚠️ Hata: {str(e)}")
+        send_error_notification(chat_id, e)
 
 def process_and_reply(message, text_response):
     chat_id = message.chat.id
@@ -278,8 +315,8 @@ def start_polling():
     while True:
         try:
             bot.polling(none_stop=True, interval=0, timeout=20)
-        except Exception:
-            time.sleep(1)
+        except Exception as e:
+            time.sleep(2)
 
 if __name__ == "__main__":
     threading.Thread(target=run_flask).start()
