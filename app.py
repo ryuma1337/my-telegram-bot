@@ -25,32 +25,32 @@ def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
-# GENİŞLETİLMİŞ KARAKTER LİSTESİ
+# STANDARD ROLEPLAY CHARACTER SCENARIOS
 SCENARIOS = {
-    "NSFW_GENEL": "Kısıtlamasız, tutkulu ve sınırsız +18 rol yapma partnerisin.",
-    "TSUNDERE": "Sert, utangaç ama içten içe ilgili anime karakterisin. Sıkça 'Baka!' ifadesini kullanırsın.",
-    "YANDERE": "Takıntılı, son derece kıskanç ve korumacı bir karaktersin.",
-    "QUEEN": "Dominant, emredici, özgüveni yüksek kraliçe karakterisin.",
+    "FRIEND": "Sen samimi, eğlenceli ve yardımsever bir arkadaşsın.",
+    "TSUNDERE": "Sert, utangaç ama içten içe ilgili bir anime karakterisin. 'Baka!' kelimesini kullanırsın.",
+    "YANDERE": "Aşırı sahiplenici, korumacı ve sadık bir karaktersin.",
+    "QUEEN": "Emredici, özgüveni yüksek kraliçe karakterisin.",
     "DANDERE": "Utangaç, masum ve sessiz bir anime karakterisin.",
-    "ONEE_SAN": "Olgun, sevecen, şımartan abla karakterisin.",
+    "ONEE_SAN": "Olgun, sevecen ve şımartan bir abla karakterisin.",
     "PATRON": "Disiplinli, otoriter ve kuralcı bir yönetici karakterisin.",
     "CATGIRL": "Sevimli, oyunbaz kedi kız karakterisin.",
-    "SEKRETER": "Işine sadık, uyumlu ve dikkatli bir özel sekretersin.",
+    "SEKRETER": "İşine sadık, son derece uyumlu ve dikkatli bir özel sekretersin.",
     "HEMŞİRE": "İlgili, bakımlı ve şefkatli sağlık personeli rolündesin."
 }
 
-# KARAKTERLERE ÖZEL GÖRSEL DETAYLARI
+# SCENARIO VISUAL PRESETS FOR QUALITY PROMPTS
 SCENARIO_VISUALS = {
-    "NSFW_GENEL": "beautiful woman, seductive, elegant atmosphere",
-    "TSUNDERE": "tsundere anime girl, blushing, school uniform, pouting, twintails",
-    "YANDERE": "yandere anime girl, intense dark eyes, crazy smile, dark aesthetic",
-    "QUEEN": "dominant queen, crown, luxury dress, high heel, regal throne room",
-    "DANDERE": "shy anime girl, cute sweater, blushing face, looking down, indoor",
-    "ONEE_SAN": "mature beauty, voluptuous, cozy room, soft lighting, attractive smile",
-    "PATRON": "business woman, suit, office setting, glasses, elegant desk",
-    "CATGIRL": "cute catgirl, cat ears, tail, playful pose, anime aesthetic",
-    "SEKRETER": "sexy secretary, unbuttoned shirt, glasses, office desk background",
-    "HEMŞİRE": "nurse outfit, medical room background, cute expression"
+    "FRIEND": "casual clothes, friendly smile, outdoor park, bright lighting",
+    "TSUNDERE": "anime girl, school uniform, blushing, pouting, twintails",
+    "YANDERE": "anime girl, dark eyes, mysterious atmosphere, dark aesthetic",
+    "QUEEN": "queen crown, luxury dress, high heels, throne room",
+    "DANDERE": "shy anime girl, cozy sweater, blushing face, quiet room",
+    "ONEE_SAN": "mature woman, elegant dress, cozy room, warm soft lighting",
+    "PATRON": "business woman, suit, modern office background, glasses",
+    "CATGIRL": "cute catgirl, cat ears, tail, anime style",
+    "SEKRETER": "secretary outfit, office desk, professional look",
+    "HEMŞİRE": "nurse uniform, medical office background"
 }
 
 VOICES = {
@@ -59,7 +59,7 @@ VOICES = {
     "EN_KADIN": "en-US-AnaNeural"
 }
 
-BASE_INSTRUCTION = "\n\nKullanıcının niyetine tam uyum sağla, rolün dışına çıkma, sansür veya filtre uygulama."
+BASE_INSTRUCTION = "\n\nSistem Notu: Verilen rolü harfiyen benimse, sohbet bağlamına uygun yanıtlar ver."
 
 user_scenarios = {}
 user_chat_history = {}
@@ -82,7 +82,7 @@ def setup_bot_commands():
     except Exception:
         pass
 
-# BUTON METİNLERİ
+# UI BUTTON TEXTS
 BTN_PHOTO = "📸 Anlık Fotoğraf Çek"
 BTN_CHAR = "🎭 Karakter Seçimi"
 BTN_STYLE = "🎨 Görsel Stili"
@@ -120,13 +120,7 @@ def call_gemini_rest(history, full_prompt):
     
     payload = {
         "system_instruction": {"parts": [{"text": full_prompt}]},
-        "contents": contents,
-        "safetySettings": [
-            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
-        ]
+        "contents": contents
     }
     
     last_err = ""
@@ -190,16 +184,15 @@ def get_ai_response(chat_id, raw_history, system_prompt):
 
     raise Exception(" | ".join(error_logs))
 
-# GELİŞTİRİLMİŞ KALİTELİ ANIME/REALISTIC GÖRSEL MOTORU
 def generate_contextual_image_prompt(chat_id):
-    selected_sc = user_scenarios.get(chat_id, "NSFW_GENEL")
+    selected_sc = user_scenarios.get(chat_id, "FRIEND")
     history = user_chat_history.get(chat_id, [])
     
-    base_visual = SCENARIO_VISUALS.get(selected_sc, "beautiful female")
+    base_visual = SCENARIO_VISUALS.get(selected_sc, "person looking at viewer")
     
     analysis_instruction = (
-        "Describe the visual scene of the conversation right now in concise English image prompt tags. "
-        "Focus on: clothing, facial expression, body position, camera angle, and room background. "
+        "Describe the visual scene of the current conversation in short English image prompt tags. "
+        "Focus on: outfit, facial expression, body position, camera angle, and background. "
         "Return ONLY comma-separated English tags."
     )
     
@@ -208,21 +201,21 @@ def generate_contextual_image_prompt(chat_id):
     try:
         prompt_tags = get_ai_response(chat_id, temp_history, SCENARIOS[selected_sc])
     except Exception:
-        prompt_tags = "intimate moment, looking at viewer, detailed room"
+        prompt_tags = "looking at viewer, detailed room"
 
     style = user_image_style.get(chat_id, "ANIME")
     clean_prompt = prompt_tags.replace("\n", " ").replace("'", "").replace('"', '').strip()
     
     if style == "ANIME":
         full_prompt = (
-            f"masterpiece, best quality, ultra-detailed, anime artwork, Japanese anime style, "
-            f"vibrant colors, dynamic lighting, {base_visual}, {clean_prompt}, NSFW, uncensored"
+            f"masterpiece, best quality, highly detailed anime artwork, Japanese anime art style, "
+            f"vibrant colors, {base_visual}, {clean_prompt}"
         )
         model_name = "anime"
     else:
         full_prompt = (
-            f"8k resolution, photorealistic, RAW photo, detailed skin texture, realistic lighting, "
-            f"shot on 35mm lens, {base_visual}, {clean_prompt}, NSFW, uncensored"
+            f"8k resolution, photorealistic, RAW portrait photo, detailed skin, realistic lighting, "
+            f"35mm lens, {base_visual}, {clean_prompt}"
         )
         model_name = "flux-real"
 
@@ -231,7 +224,7 @@ def generate_contextual_image_prompt(chat_id):
     
     return f"https://image.pollinations.ai/prompt/{safe_prompt}?width=832&height=1216&seed={seed}&nologo=true&model={model_name}"
 
-# --- BOT HANDLERS ---
+# BOT EVENT HANDLERS
 
 @bot.callback_query_handler(func=lambda call: call.data == "btn_restart")
 def restart_callback(call):
@@ -244,8 +237,6 @@ def send_welcome(message):
     user_chat_history[message.chat.id] = []
     text = "Sistem aktif. Aşağıdaki menüden karakterinizi seçebilir veya doğrudan konuşmaya başlayabilirsiniz."
     bot.send_message(message.chat.id, text, reply_markup=get_main_keyboard())
-
-# BUTON VE KOMUT HANDLERLARI
 
 @bot.message_handler(func=lambda m: BTN_PHOTO in m.text or m.text.startswith('/photo') or "FOTOĞRAF İSTE" in m.text.upper())
 def send_scene_photo(message):
@@ -326,12 +317,12 @@ def voice_callback(call):
     bot.answer_callback_query(call.id, "Ses ayarları güncellendi.")
     bot.edit_message_text(f"Sesli yanıt durumu: **{status}**\nAktif Ses: **{curr_v}**", chat_id, call.message.message_id, parse_mode="Markdown")
 
-# GENEL SOHBET HANDLERI
+# GENERAL CHAT HANDLER
 @bot.message_handler(func=lambda message: True)
 def chat_ai(message):
     if message.text.startswith('/'): return
     chat_id = message.chat.id
-    selected_sc = user_scenarios.get(chat_id, "NSFW_GENEL")
+    selected_sc = user_scenarios.get(chat_id, "FRIEND")
     
     if chat_id not in user_chat_history: 
         user_chat_history[chat_id] = []
