@@ -2,15 +2,12 @@ import os
 import random
 import threading
 import time
-import google.generativeai as genai
+import requests
 from flask import Flask
 from telebot import TeleBot, types
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY.strip())
 
 bot = TeleBot(TELEGRAM_BOT_TOKEN)
 app = Flask(__name__)
@@ -32,13 +29,6 @@ PROMPTS = {
 }
 
 user_modes = {}
-
-SAFETY_SETTINGS = [
-    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
-]
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
@@ -66,23 +56,38 @@ def chat_ai(message):
         bot.reply_to(message, "⚠️ GEMINI_API_KEY bulunamadı! Render Environment sekmesinden ekleyin.")
         return
 
-    full_prompt = f"{system_prompt}\n\nKullanıcı: {user_input}"
+    # Güncel Gemini 3.6 Flash Endpoint
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={GEMINI_API_KEY.strip()}"
+    
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": f"{system_prompt}\n\nKullanıcı: {user_input}"}
+                ]
+            }
+        ],
+        "safetySettings": [
+            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
+        ]
+    }
 
     try:
-        # Doğrudan istenen gemini-3.6-flash modeli
-        model = genai.GenerativeModel('gemini-3.6-flash')
-        response = model.generate_content(
-            full_prompt,
-            safety_settings=SAFETY_SETTINGS
-        )
-        
-        if response.text:
-            bot.reply_to(message, response.text)
+        res = requests.post(url, json=payload, timeout=15)
+        if res.status_code == 200:
+            data = res.json()
+            try:
+                ai_msg = data['candidates'][0]['content']['parts'][0]['text']
+                bot.reply_to(message, ai_msg)
+            except (KeyError, IndexError):
+                bot.reply_to(message, "⚠️ Yanıt oluşturulamadı (İçerik filtresine takılmış olabilir).")
         else:
-            bot.reply_to(message, "⚠️ İçerik filtresi yanıtı engelledi.")
-            
+            bot.reply_to(message, f"⚠️ API Hatası: KOD {res.status_code} - {res.text}")
     except Exception as e:
-        bot.reply_to(message, f"⚠️ API Hatası: {str(e)}")
+        bot.reply_to(message, "⚠️ Bağlantı zaman aşımına uğradı, tekrar deneyin.")
 
 def start_polling():
     try:
