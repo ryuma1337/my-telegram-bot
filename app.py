@@ -6,8 +6,7 @@ from io import BytesIO
 import requests
 from flask import Flask
 from telebot import TeleBot, types
-from google import genai
-from google.genai import types as genai_types
+import google.generativeai as genai
 from gtts import gTTS
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -17,8 +16,9 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 bot = TeleBot(TELEGRAM_BOT_TOKEN)
 app = Flask(__name__)
 
-# En stabil resmi Gemini model tanımı
-GEMINI_MODEL_NAME = "gemini-1.5-flash"
+# Gemini API Yapılandırması
+if GEMINI_API_KEY and GEMINI_API_KEY.strip():
+    genai.configure(api_key=GEMINI_API_KEY.strip())
 
 @app.route('/')
 def home():
@@ -69,63 +69,65 @@ def call_openrouter(history, full_prompt):
     }
     
     messages = [{"role": "system", "content": full_prompt}]
-    for content in history:
-        role = "assistant" if content.role == "model" else "user"
-        text = content.parts[0].text if content.parts else ""
-        messages.append({"role": role, "content": text})
+    for h in history:
+        role = "assistant" if h.get("role") == "model" else "user"
+        messages.append({"role": role, "content": h.get("text", "")})
 
-    # OpenRouter'da asla kapanmayan ücretsiz DeepSeek / Llama modelleri
-    models_to_try = [
-        "deepseek/deepseek-chat:free",
-        "meta-llama/llama-3-8b-instruct:free",
+    # OpenRouter'da %100 açık olan ücretsiz modeller
+    models = [
+        "meta-llama/llama-3.2-11b-vision-instruct:free",
+        "qwen/qwen-2.5-7b-instruct:free",
         "mistralai/mistral-7b-instruct:free"
     ]
     
-    for model_name in models_to_try:
-        payload = {
-            "model": model_name,
-            "messages": messages
-        }
-        res = requests.post(url, json=payload, headers=headers, timeout=15)
-        if res.status_code == 200:
-            return res.json()['choices'][0]['message']['content']
+    for m in models:
+        try:
+            payload = {"model": m, "messages": messages}
+            res = requests.post(url, json=payload, headers=headers, timeout=12)
+            if res.status_code == 200:
+                return res.json()['choices'][0]['message']['content']
+        except Exception:
+            continue
 
-    raise Exception(f"OpenRouter Tüm Modeller Başarısız. Son Kod: {res.status_code}")
+    raise Exception("OpenRouter: Tüm yedek modeller meşgul/erişilemez.")
 
-def get_ai_response(chat_id, history, system_prompt):
+def get_ai_response(chat_id, raw_history, system_prompt):
     full_prompt = system_prompt + BASE_INSTRUCTION
     error_logs = []
     
     # 1. GEMINI DENEMESİ
     if GEMINI_API_KEY and GEMINI_API_KEY.strip():
         try:
-            client = genai.Client(api_key=GEMINI_API_KEY.strip())
-            config = genai_types.GenerateContentConfig(
+            # Standart stable model
+            model = genai.GenerativeModel(
+                model_name="gemini-1.5-flash",
                 system_instruction=full_prompt,
                 safety_settings=[
-                    genai_types.SafetySetting(category=genai_types.HarmCategory.HARM_CATEGORY_HARASSMENT, threshold=genai_types.HarmBlockThreshold.BLOCK_NONE),
-                    genai_types.SafetySetting(category=genai_types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold=genai_types.HarmBlockThreshold.BLOCK_NONE)
+                    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"}
                 ]
             )
             
-            # Model ismini direkt veriyoruz
-            response = client.models.generate_content(
-                model=GEMINI_MODEL_NAME, 
-                contents=history, 
-                config=config
-            )
+            gemini_contents = []
+            for item in raw_history:
+                gemini_contents.append({
+                    "role": item["role"],
+                    "parts": [item["text"]]
+                })
+                
+            response = model.generate_content(gemini_contents)
             if response and response.text:
                 return response.text
-            error_logs.append("Gemini: Boş yanıt")
+            error_logs.append("Gemini: Boş yanıt döndü.")
         except Exception as e:
             error_logs.append(f"Gemini Hatası: {str(e)[:80]}")
     else:
         error_logs.append("GEMINI_API_KEY Yok!")
 
-    # 2. OPENROUTER DENEMESİ
+    # 2. OPENROUTER YEDEĞİ
     if OPENROUTER_API_KEY and OPENROUTER_API_KEY.strip():
         try:
-            return call_openrouter(history, full_prompt)
+            return call_openrouter(raw_history, full_prompt)
         except Exception as e:
             error_logs.append(f"OpenRouter Hatası: {str(e)[:80]}")
     else:
@@ -191,7 +193,7 @@ def send_scene_photo(message):
         prompt_instruction = "Son konuşmaya uygun 1girl, solo, anime, nsfw tarzında virgüllü İngilizce prompt yaz."
         
         history = user_chat_history.get(chat_id, [])
-        temp_history = history + [genai_types.Content(role="user", parts=[genai_types.Part.from_text(text=prompt_instruction)])]
+        temp_history = history + [{"role": "user", "text": prompt_instruction}]
         
         prompt_text = get_ai_response(chat_id, temp_history, SCENARIOS[selected_sc])
         clean_prompt = prompt_text.replace("\n", " ").strip()
@@ -211,14 +213,14 @@ def chat_ai(message):
         user_chat_history[chat_id] = []
         
     history = user_chat_history[chat_id]
-    history.append(genai_types.Content(role="user", parts=[genai_types.Part.from_text(text=message.text)]))
+    history.append({"role": "user", "text": message.text})
 
     try:
         bot.send_chat_action(chat_id, 'typing')
         response_text = get_ai_response(chat_id, history, SCENARIOS[selected_sc])
         
         if response_text:
-            history.append(genai_types.Content(role="model", parts=[genai_types.Part.from_text(text=response_text)]))
+            history.append({"role": "model", "text": response_text})
             if len(history) > MAX_HISTORY_LEN:
                 user_chat_history[chat_id] = history[-MAX_HISTORY_LEN:]
             
