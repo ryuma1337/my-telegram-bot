@@ -75,10 +75,8 @@ def chat_ai(message):
         return
 
     try:
-        # Google Resmi SDK Bağlantısı
         client = genai.Client(api_key=GEMINI_API_KEY.strip())
         
-        # Filtreleri tamamen devre dışı bırakma konfigürasyonu
         config = genai_types.GenerateContentConfig(
             system_instruction=system_prompt,
             safety_settings=[
@@ -108,11 +106,9 @@ def chat_ai(message):
                 available_models.append(m.name)
 
         if not available_models:
-            # Fallback varsayılan liste
-            available_models = ["gemini-1.5-flash", "gemini-2.0-flash-exp", "gemini-1.5-pro"]
+            available_models = ["gemini-2.5-flash", "gemini-1.5-flash"]
 
         # Bulunan ilk aktif modelle içeriği üret
-        response = None
         for model_name in available_models:
             try:
                 response = client.models.generate_content(
@@ -124,7 +120,6 @@ def chat_ai(message):
                     bot.reply_to(message, response.text)
                     return
             except Exception as model_err:
-                print(f"{model_name} denenirken hata: {model_err}")
                 continue
 
         bot.reply_to(message, "⚠️ Yanıt oluşturulamadı (İçerik filtresine takılmış olabilir).")
