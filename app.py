@@ -15,7 +15,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 bot = TeleBot(TELEGRAM_BOT_TOKEN)
 app = Flask(__name__)
 
-# Model ismi güncellendi
+# Model ismi kesin olarak desteklenen güncel sürüme sabitlendi
 MODEL_NAME = "gemini-1.5-flash"
 
 @app.route('/')
