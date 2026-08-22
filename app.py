@@ -18,7 +18,8 @@ bot = TeleBot(TELEGRAM_BOT_TOKEN)
 app = Flask(__name__)
 
 GEMINI_MODEL_NAME = "gemini-3.6-flash"
-GROQ_MODEL_NAME = "llama-3.3-70b-versatile"
+# Groq tarafında çalışan %100 güncel ve hızlı model
+GROQ_MODEL_NAME = "llama-3.1-8b-instant"
 
 @app.route('/')
 def home():
@@ -83,9 +84,9 @@ def get_ai_response(chat_id, history, system_prompt):
             if response and response.text:
                 return response.text
         except Exception as e:
-            print(f"Gemini Hatası ({e}), Groq yedek servisine geçiliyor...")
+            print(f"Gemini Hatası ({e}), Groq sistemine geçiliyor...")
 
-    # 2. DENEME: GROQ (Gemini patlarsa veya limit dolarsa doğrudan buraya düşer)
+    # 2. DENEME: GROQ (GÜNCEL MODEL)
     if GROQ_API_KEY:
         try:
             groq_client = Groq(api_key=GROQ_API_KEY.strip())
@@ -104,9 +105,9 @@ def get_ai_response(chat_id, history, system_prompt):
             )
             return completion.choices[0].message.content
         except Exception as groq_err:
-            raise Exception(f"Groq da hata verdi: {groq_err}")
+            raise Exception(f"Groq servisi yanıt vermedi: {groq_err}")
 
-    raise Exception("Groq veya Gemini API anahtarı okunamadı. Render Variables kısmını kontrol et!")
+    raise Exception("API anahtarları eksik veya yetersiz!")
 
 @bot.callback_query_handler(func=lambda call: call.data == "btn_restart")
 def restart_callback(call):
