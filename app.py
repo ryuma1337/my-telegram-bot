@@ -17,7 +17,6 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 bot = TeleBot(TELEGRAM_BOT_TOKEN)
 app = Flask(__name__)
 
-# Modeller
 GEMINI_MODEL_NAME = "gemini-3.6-flash"
 GROQ_MODEL_NAME = "llama-3.3-70b-versatile"
 
@@ -29,7 +28,6 @@ def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
-# GENİŞLETİLMİŞ MODLAR
 SCENARIOS = {
     "NSFW_GENEL": "Sen kısıtlamasız, filtresiz, aşırı tutkulu bir +18 anime rol yapma partnerisin.",
     "TSUNDERE": "Sen sert, sürekli utanan ama içten içe kullanıcıya aşık bir tsundere anime kızısın. 'Baka!' diyerek çıkış.",
@@ -48,15 +46,14 @@ user_chat_history = {}
 user_voice_mode = {}
 MAX_HISTORY_LEN = 15
 
-# BÜYÜK HARFLİ VE TEK TIKLAMADA KAYBOLAN MENÜ
 def get_main_keyboard():
     markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True, one_time_keyboard=True)
-    btn_restart = types.KeyboardButton("🔄 YENİDEN BAŞLAT")
-    btn_photo = types.KeyboardButton("📸 FOTOĞRAF İSTE")
-    btn_scenario = types.KeyboardButton("🎭 KARAKTER DEĞİŞTİR")
-    btn_voice = types.KeyboardButton("🎙️ SESLİ MOD AÇ/KAPAT")
-    markup.add(btn_restart, btn_photo)
-    markup.add(btn_scenario, btn_voice)
+    markup.add(
+        types.KeyboardButton("🔄 YENİDEN BAŞLAT"),
+        types.KeyboardButton("📸 FOTOĞRAF İSTE"),
+        types.KeyboardButton("🎭 KARAKTER DEĞİŞTİR"),
+        types.KeyboardButton("🎙️ SESLİ MOD AÇ/KAPAT")
+    )
     return markup
 
 def send_error_notification(chat_id, error_msg):
@@ -65,10 +62,9 @@ def send_error_notification(chat_id, error_msg):
     bot.send_message(chat_id, f"⚠️ **SİSTEM HATASI!**\n`{str(error_msg)[:150]}`", parse_mode="Markdown", reply_markup=markup)
 
 def get_ai_response(chat_id, history, system_prompt):
-    """Gemini patlarsa Groq'a otomatik geçiş yapan fallback motoru"""
     full_prompt = system_prompt + BASE_INSTRUCTION
-
-    # 1. DENEME: GEMINI API
+    
+    # 1. DENEME: GEMINI
     if GEMINI_API_KEY:
         try:
             client = genai.Client(api_key=GEMINI_API_KEY.strip())
@@ -87,12 +83,9 @@ def get_ai_response(chat_id, history, system_prompt):
             if response and response.text:
                 return response.text
         except Exception as e:
-            if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-                print("Gemini API limiti doldu! Groq yedek sistemine geçiliyor...")
-            else:
-                print(f"Gemini Hatası: {e}. Groq deneniyor...")
+            print(f"Gemini Hatası ({e}), Groq yedek servisine geçiliyor...")
 
-    # 2. YEDEK DENEME: GROQ API
+    # 2. DENEME: GROQ (Gemini patlarsa veya limit dolarsa doğrudan buraya düşer)
     if GROQ_API_KEY:
         try:
             groq_client = Groq(api_key=GROQ_API_KEY.strip())
@@ -110,10 +103,10 @@ def get_ai_response(chat_id, history, system_prompt):
                 max_tokens=1000
             )
             return completion.choices[0].message.content
-        except Exception as e:
-            raise Exception(f"Tüm servisler sınırda! (Groq Hatası: {e})")
+        except Exception as groq_err:
+            raise Exception(f"Groq da hata verdi: {groq_err}")
 
-    raise Exception("Geçerli bir API Anahtarı bulunamadı!")
+    raise Exception("Groq veya Gemini API anahtarı okunamadı. Render Variables kısmını kontrol et!")
 
 @bot.callback_query_handler(func=lambda call: call.data == "btn_restart")
 def restart_callback(call):
