@@ -17,7 +17,8 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 bot = TeleBot(TELEGRAM_BOT_TOKEN)
 app = Flask(__name__)
 
-GEMINI_MODEL_NAME = "gemini-1.5-flash"
+# En güncel kararlı Gemini modeli
+GEMINI_MODEL_NAME = "gemini-2.5-flash"
 
 @app.route('/')
 def home():
@@ -73,14 +74,22 @@ def call_openrouter(history, full_prompt):
         text = content.parts[0].text if content.parts else ""
         messages.append({"role": role, "content": text})
 
+    # OpenRouter üzerinde aktif olan güncel ücretsiz model
     payload = {
-        "model": "meta-llama/llama-3.2-11b-vision-instruct:free",
+        "model": "meta-llama/llama-3.3-70b-instruct:free",
         "messages": messages
     }
     
     res = requests.post(url, json=payload, headers=headers, timeout=15)
     if res.status_code == 200:
         return res.json()['choices'][0]['message']['content']
+    
+    # Alternatif model denemesi
+    payload["model"] = "google/gemini-2.0-flash-lite-001:free"
+    res_alt = requests.post(url, json=payload, headers=headers, timeout=15)
+    if res_alt.status_code == 200:
+        return res_alt.json()['choices'][0]['message']['content']
+
     raise Exception(f"OpenRouter Kod: {res.status_code} - Mesaj: {res.text[:80]}")
 
 def get_ai_response(chat_id, history, system_prompt):
