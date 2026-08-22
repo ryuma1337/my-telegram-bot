@@ -56,8 +56,8 @@ def chat_ai(message):
         bot.reply_to(message, "⚠️ GEMINI_API_KEY bulunamadı! Render Environment sekmesinden ekleyin.")
         return
 
-    # Doğrudan stabil Gemini 1.5 Flash Endpoint'i (En hızlı ve kesintisiz yanıt veren)
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY.strip()}"
+    # Sırasıyla denenecek modeller (503 yoğunluk hatasını aşmak için)
+    models_to_try = ["gemini-1.5-flash", "gemini-1.5-flash-8b"]
     
     payload = {
         "contents": [
@@ -75,20 +75,29 @@ def chat_ai(message):
         ]
     }
 
-    try:
-        # Timeout süresi 30 saniyeye çıkarıldı
-        res = requests.post(url, json=payload, timeout=30)
-        if res.status_code == 200:
-            data = res.json()
-            try:
-                ai_msg = data['candidates'][0]['content']['parts'][0]['text']
-                bot.reply_to(message, ai_msg)
-            except (KeyError, IndexError):
-                bot.reply_to(message, "⚠️ Yanıt oluşturulamadı (İçerik filtresine takılmış olabilir).")
-        else:
-            bot.reply_to(message, f"⚠️ API Hatası: KOD {res.status_code} - {res.text}")
-    except Exception as e:
-        bot.reply_to(message, "⚠️ Bağlantı zaman aşımına uğradı, tekrar deneyin.")
+    for model_name in models_to_try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY.strip()}"
+        try:
+            res = requests.post(url, json=payload, timeout=25)
+            if res.status_code == 200:
+                data = res.json()
+                try:
+                    ai_msg = data['candidates'][0]['content']['parts'][0]['text']
+                    bot.reply_to(message, ai_msg)
+                    return
+                except (KeyError, IndexError):
+                    bot.reply_to(message, "⚠️ Yanıt oluşturulamadı (İçerik filtresine takılmış olabilir).")
+                    return
+            elif res.status_code == 503:
+                print(f"{model_name} yoğun (503), yedek modele geçiliyor...")
+                continue
+            else:
+                bot.reply_to(message, f"⚠️ API Hatası: KOD {res.status_code} - {res.text}")
+                return
+        except Exception:
+            continue
+
+    bot.reply_to(message, "⚠️ Google sunucuları aşırı yoğun. Lütfen birkaç saniye sonra tekrar yazın.")
 
 def start_polling():
     try:
