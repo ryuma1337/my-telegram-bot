@@ -1,6 +1,7 @@
 import telebot
 import requests
 import os
+import urllib.parse
 
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
@@ -18,13 +19,34 @@ def start_command(message):
         markup = telebot.types.InlineKeyboardMarkup()
         btn = telebot.types.InlineKeyboardButton("🔞 18 Yaşından Büyüğüm (Onayla)", callback_data="age_verify_yes")
         markup.add(btn)
-        bot.send_message(message.chat.id, "🔥 +18 Sınırsız Yapay Zekâ Botu. Devam etmek için onaylayın:", reply_markup=markup)
+        bot.send_message(message.chat.id, "🔥 Yapay Zekâ Botu. Devam etmek için onaylayın:", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data == "age_verify_yes")
 def callback_query(call):
     approved_users.add(call.from_user.id)
     bot.answer_callback_query(call.id, "Onaylandı!")
-    bot.edit_message_text("✅ Yaşınız doğrulandı! Şimdi mesajınızı yazabilirsiniz.", call.message.chat.id, call.message.message_id)
+    bot.edit_message_text("✅ Yaşınız doğrulandı! Mesaj yazabilir veya /ciz [örnek: kırmızı araba] diyerek görsel ürettirebilirsiniz.", call.message.chat.id, call.message.message_id)
+
+@bot.message_handler(commands=['ciz'])
+def generate_image(message):
+    user_id = message.from_user.id
+    if user_id not in approved_users:
+        bot.reply_to(message, "Lütfen önce /start yazıp onay verin.")
+        return
+
+    prompt = message.text.replace('/ciz', '').strip()
+    if not prompt:
+        bot.reply_to(message, "Lütfen ne çizmem gerektiğini belirtin. Örnek: `/ciz siberpunk şehir`")
+        return
+
+    bot.send_chat_action(message.chat.id, 'upload_photo')
+    
+    try:
+        encoded_prompt = urllib.parse.quote(prompt)
+        image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true"
+        bot.send_photo(message.chat.id, image_url, caption=f"🎨 **İstek:** {prompt}", parse_mode="Markdown")
+    except Exception as e:
+        bot.reply_to(message, "Görsel oluşturulurken bir hata meydana geldi.")
 
 @bot.message_handler(func=lambda message: True)
 def handle_all_messages(message):
@@ -58,7 +80,7 @@ def handle_all_messages(message):
 
 if MY_CHAT_ID:
     try:
-        bot.send_message(MY_CHAT_ID, "🚀 Bot bulut sunucuda (7/24) başarıyla aktif edildi!")
+        bot.send_message(MY_CHAT_ID, "🚀 Bot güncellemesi (Görsel Üretimi Ekli) aktif edildi!")
     except Exception as e:
         pass
 
