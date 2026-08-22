@@ -17,8 +17,8 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 bot = TeleBot(TELEGRAM_BOT_TOKEN)
 app = Flask(__name__)
 
-# Güncel Gemini Modeli
-GEMINI_MODEL_NAME = "gemini-2.5-flash"
+# En stabil resmi Gemini model tanımı
+GEMINI_MODEL_NAME = "gemini-1.5-flash"
 
 @app.route('/')
 def home():
@@ -74,23 +74,29 @@ def call_openrouter(history, full_prompt):
         text = content.parts[0].text if content.parts else ""
         messages.append({"role": role, "content": text})
 
-    # OpenRouter Ücretsiz Aktif Model
-    payload = {
-        "model": "google/gemini-2.0-flash-lite-001:free",
-        "messages": messages
-    }
+    # OpenRouter'da asla kapanmayan ücretsiz DeepSeek / Llama modelleri
+    models_to_try = [
+        "deepseek/deepseek-chat:free",
+        "meta-llama/llama-3-8b-instruct:free",
+        "mistralai/mistral-7b-instruct:free"
+    ]
     
-    res = requests.post(url, json=payload, headers=headers, timeout=15)
-    if res.status_code == 200:
-        return res.json()['choices'][0]['message']['content']
+    for model_name in models_to_try:
+        payload = {
+            "model": model_name,
+            "messages": messages
+        }
+        res = requests.post(url, json=payload, headers=headers, timeout=15)
+        if res.status_code == 200:
+            return res.json()['choices'][0]['message']['content']
 
-    raise Exception(f"OpenRouter Kod: {res.status_code} - Mesaj: {res.text[:80]}")
+    raise Exception(f"OpenRouter Tüm Modeller Başarısız. Son Kod: {res.status_code}")
 
 def get_ai_response(chat_id, history, system_prompt):
     full_prompt = system_prompt + BASE_INSTRUCTION
     error_logs = []
     
-    # 1. GEMINI
+    # 1. GEMINI DENEMESİ
     if GEMINI_API_KEY and GEMINI_API_KEY.strip():
         try:
             client = genai.Client(api_key=GEMINI_API_KEY.strip())
@@ -101,23 +107,29 @@ def get_ai_response(chat_id, history, system_prompt):
                     genai_types.SafetySetting(category=genai_types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold=genai_types.HarmBlockThreshold.BLOCK_NONE)
                 ]
             )
-            response = client.models.generate_content(model=GEMINI_MODEL_NAME, contents=history, config=config)
+            
+            # Model ismini direkt veriyoruz
+            response = client.models.generate_content(
+                model=GEMINI_MODEL_NAME, 
+                contents=history, 
+                config=config
+            )
             if response and response.text:
                 return response.text
             error_logs.append("Gemini: Boş yanıt")
         except Exception as e:
             error_logs.append(f"Gemini Hatası: {str(e)[:80]}")
     else:
-        error_logs.append("GEMINI_API_KEY Render'da Yok!")
+        error_logs.append("GEMINI_API_KEY Yok!")
 
-    # 2. OPENROUTER
+    # 2. OPENROUTER DENEMESİ
     if OPENROUTER_API_KEY and OPENROUTER_API_KEY.strip():
         try:
             return call_openrouter(history, full_prompt)
         except Exception as e:
             error_logs.append(f"OpenRouter Hatası: {str(e)[:80]}")
     else:
-        error_logs.append("OPENROUTER_API_KEY Render'da Yok!")
+        error_logs.append("OPENROUTER_API_KEY Yok!")
 
     raise Exception(" | ".join(error_logs))
 
