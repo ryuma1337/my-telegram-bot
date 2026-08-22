@@ -17,7 +17,6 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 bot = TeleBot(TELEGRAM_BOT_TOKEN)
 app = Flask(__name__)
 
-# Güncel standart Gemini modeli
 GEMINI_MODEL_NAME = "gemini-1.5-flash"
 
 @app.route('/')
@@ -82,13 +81,13 @@ def call_openrouter(history, full_prompt):
     res = requests.post(url, json=payload, headers=headers, timeout=15)
     if res.status_code == 200:
         return res.json()['choices'][0]['message']['content']
-    raise Exception(f"OpenRouter Yanıt Vermedi ({res.status_code}): {res.text[:100]}")
+    raise Exception(f"OpenRouter Kod: {res.status_code} - Mesaj: {res.text[:80]}")
 
 def get_ai_response(chat_id, history, system_prompt):
     full_prompt = system_prompt + BASE_INSTRUCTION
-    errors = []
+    error_logs = []
     
-    # 1. Gemini Denemesi
+    # 1. GEMINI
     if GEMINI_API_KEY and GEMINI_API_KEY.strip():
         try:
             client = genai.Client(api_key=GEMINI_API_KEY.strip())
@@ -102,23 +101,22 @@ def get_ai_response(chat_id, history, system_prompt):
             response = client.models.generate_content(model=GEMINI_MODEL_NAME, contents=history, config=config)
             if response and response.text:
                 return response.text
-            errors.append("Gemini: Boş yanıt döndü.")
+            error_logs.append("Gemini: Boş yanıt")
         except Exception as e:
-            errors.append(f"Gemini Hatası: {str(e)[:100]}")
+            error_logs.append(f"Gemini Hatası: {str(e)[:80]}")
     else:
-        errors.append("Gemini: API Key Tanımlı Değil!")
+        error_logs.append("GEMINI_API_KEY Render'da Yok!")
 
-    # 2. OpenRouter Denemesi
+    # 2. OPENROUTER
     if OPENROUTER_API_KEY and OPENROUTER_API_KEY.strip():
         try:
             return call_openrouter(history, full_prompt)
         except Exception as e:
-            errors.append(f"OpenRouter Hatası: {str(e)[:100]}")
+            error_logs.append(f"OpenRouter Hatası: {str(e)[:80]}")
     else:
-        errors.append("OpenRouter: API Key Tanımlı Değil!")
+        error_logs.append("OPENROUTER_API_KEY Render'da Yok!")
 
-    # İkisi de başarısız olursa tam log çıktısını fırlat
-    raise Exception(" | ".join(errors))
+    raise Exception(" | ".join(error_logs))
 
 @bot.callback_query_handler(func=lambda call: call.data == "btn_restart")
 def restart_callback(call):
