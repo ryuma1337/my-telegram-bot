@@ -17,6 +17,7 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 bot = TeleBot(TELEGRAM_BOT_TOKEN)
 app = Flask(__name__)
 
+# Güncel standart Gemini modeli
 GEMINI_MODEL_NAME = "gemini-1.5-flash"
 
 @app.route('/')
@@ -58,7 +59,7 @@ def get_main_keyboard():
 def send_error_notification(chat_id, error_msg):
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("🔄 YENİDEN BAŞLAT", callback_data="btn_restart"))
-    bot.send_message(chat_id, f"⚠️ **SİSTEM HATASI!**\n`{str(error_msg)[:150]}`", parse_mode="Markdown", reply_markup=markup)
+    bot.send_message(chat_id, f"⚠️ **SİSTEM HATASI DETAYI!**\n\n`{str(error_msg)}`", parse_mode="Markdown", reply_markup=markup)
 
 def call_openrouter(history, full_prompt):
     url = "https://openrouter.ai/api/v1/chat/completions"
@@ -81,12 +82,13 @@ def call_openrouter(history, full_prompt):
     res = requests.post(url, json=payload, headers=headers, timeout=15)
     if res.status_code == 200:
         return res.json()['choices'][0]['message']['content']
-    raise Exception(f"OpenRouter Yanıt Vermedi: Status {res.status_code}")
+    raise Exception(f"OpenRouter Yanıt Vermedi ({res.status_code}): {res.text[:100]}")
 
 def get_ai_response(chat_id, history, system_prompt):
     full_prompt = system_prompt + BASE_INSTRUCTION
+    errors = []
     
-    # 1. Gemini
+    # 1. Gemini Denemesi
     if GEMINI_API_KEY and GEMINI_API_KEY.strip():
         try:
             client = genai.Client(api_key=GEMINI_API_KEY.strip())
@@ -100,17 +102,23 @@ def get_ai_response(chat_id, history, system_prompt):
             response = client.models.generate_content(model=GEMINI_MODEL_NAME, contents=history, config=config)
             if response and response.text:
                 return response.text
+            errors.append("Gemini: Boş yanıt döndü.")
         except Exception as e:
-            print(f"Gemini hatası: {e}. OpenRouter deneniyor...")
+            errors.append(f"Gemini Hatası: {str(e)[:100]}")
+    else:
+        errors.append("Gemini: API Key Tanımlı Değil!")
 
-    # 2. OpenRouter Yedek
+    # 2. OpenRouter Denemesi
     if OPENROUTER_API_KEY and OPENROUTER_API_KEY.strip():
         try:
             return call_openrouter(history, full_prompt)
         except Exception as e:
-            print(f"OpenRouter hatası: {e}")
+            errors.append(f"OpenRouter Hatası: {str(e)[:100]}")
+    else:
+        errors.append("OpenRouter: API Key Tanımlı Değil!")
 
-    raise Exception("API Key'ler okunamadı veya geçersiz. Render Environment Variables kısmını kontrol et!")
+    # İkisi de başarısız olursa tam log çıktısını fırlat
+    raise Exception(" | ".join(errors))
 
 @bot.callback_query_handler(func=lambda call: call.data == "btn_restart")
 def restart_callback(call):
