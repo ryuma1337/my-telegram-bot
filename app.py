@@ -18,8 +18,12 @@ bot = TeleBot(TELEGRAM_BOT_TOKEN)
 app = Flask(__name__)
 
 GEMINI_MODEL_NAME = "gemini-3.6-flash"
-# Groq üzerinde sırasıyla denenecek yedek modeller
-GROQ_MODELS = ["llama3-8b-8192", "llama3-70b-8192", "mixtral-8x7b-32768", "gemma2-9b-it"]
+# Groq üzerinde %100 aktif ve güncel çalışan modeller
+GROQ_MODELS = [
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+    "mixtral-8x7b-32768"
+]
 
 @app.route('/')
 def home():
@@ -65,7 +69,7 @@ def send_error_notification(chat_id, error_msg):
 def get_ai_response(chat_id, history, system_prompt):
     full_prompt = system_prompt + BASE_INSTRUCTION
     
-    # 1. DENEME: GEMINI
+    # 1. DENEME: GEMINI API
     if GEMINI_API_KEY:
         try:
             client = genai.Client(api_key=GEMINI_API_KEY.strip())
@@ -86,7 +90,7 @@ def get_ai_response(chat_id, history, system_prompt):
         except Exception as e:
             print(f"Gemini Hatası ({e}), Groq sistemine geçiliyor...")
 
-    # 2. DENEME: GROQ (Çoklu Model Desteği)
+    # 2. DENEME: GROQ API (Otomatik Model Geçişi)
     if GROQ_API_KEY:
         groq_client = Groq(api_key=GROQ_API_KEY.strip())
         groq_messages = [{"role": "system", "content": full_prompt}]
@@ -108,12 +112,12 @@ def get_ai_response(chat_id, history, system_prompt):
                 return completion.choices[0].message.content
             except Exception as groq_err:
                 last_error = groq_err
-                print(f"Groq model {model} başarısız oldu, bir sonrakine geçiliyor...")
+                print(f"Groq model {model} hatası: {groq_err}. Sonraki model deneniyor...")
                 continue
                 
         raise Exception(f"Tüm Groq modelleri başarısız: {last_error}")
 
-    raise Exception("Geçerli API anahtarı bulunamadı!")
+    raise Exception("API anahtarları eksik veya geçersiz!")
 
 @bot.callback_query_handler(func=lambda call: call.data == "btn_restart")
 def restart_callback(call):
@@ -128,16 +132,20 @@ def send_welcome(message):
     bot.send_message(message.chat.id, text, reply_markup=get_main_keyboard(), parse_mode="Markdown")
 
 @bot.message_handler(func=lambda m: m.text == "🔄 YENİDEN BAŞLAT")
-def menu_restart(message): send_welcome(message)
+def menu_restart(message): 
+    send_welcome(message)
 
 @bot.message_handler(func=lambda m: m.text == "📸 FOTOĞRAF İSTE")
-def menu_photo(message): send_scene_photo(message)
+def menu_photo(message): 
+    send_scene_photo(message)
 
 @bot.message_handler(func=lambda m: m.text == "🎭 KARAKTER DEĞİŞTİR")
-def menu_scenario(message): change_scenario(message)
+def menu_scenario(message): 
+    change_scenario(message)
 
 @bot.message_handler(func=lambda m: m.text == "🎙️ SESLİ MOD AÇ/KAPAT")
-def menu_voice(message): toggle_voice(message)
+def menu_voice(message): 
+    toggle_voice(message)
 
 def toggle_voice(message):
     chat_id = message.chat.id
@@ -210,7 +218,8 @@ def chat_ai(message):
                 fp.seek(0)
                 bot.send_voice(chat_id, voice=fp)
     except Exception as e:
-        if history: history.pop()
+        if history: 
+            history.pop()
         send_error_notification(chat_id, e)
 
 if __name__ == "__main__":
