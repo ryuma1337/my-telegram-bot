@@ -1,5 +1,4 @@
 pyTelegramBotAPI
 requests
-flask
+Flask
 edge-tts
-asyncio
