@@ -47,7 +47,8 @@ def send_welcome(message):
         "📜 **Komutlar:**\n"
         "`/senaryo` - Karakter kişiliğini değiştirir.\n"
         "`/ses` - Sesli yanıt modunu açar/kapatır.\n"
-        "`/ciz <metin>` - Görsel üretir.\n"
+        "`/photo` - O an yaptığı şeyin/sahnenin fotoğrafını atar.\n"
+        "`/ciz <metin>` - Özel görsel ürettirir.\n"
         "`/temizle` - Hafızayı sıfırlar.\n\n"
         "🎙️ *Bota sesli mesaj da gönderebilirsin!*"
     )
@@ -89,6 +90,51 @@ def clear_history(message):
     chat_id = message.chat.id
     user_chat_history[chat_id] = []
     bot.reply_to(message, "🧠 **Sohbet hafızası sıfırlandı!**", parse_mode="Markdown")
+
+# Anlık Sahne Görseli Oluşturma Komutu (/photo)
+@bot.message_handler(commands=['photo'])
+def send_scene_photo(message):
+    chat_id = message.chat.id
+    if not GEMINI_API_KEY:
+        bot.reply_to(message, "⚠️ GEMINI_API_KEY bulunamadı!")
+        return
+
+    bot.send_chat_action(chat_id, 'upload_photo')
+
+    history = user_chat_history.get(chat_id, [])
+    if not history:
+        bot.reply_to(message, "Henüz sohbet etmedik! Önce biraz konuşalım, sonra anlık fotoğraf iste.")
+        return
+
+    try:
+        client = genai.Client(api_key=GEMINI_API_KEY.strip())
+        
+        # Hafızadaki son durumdan görsel prompt'u çıkarma
+        prompt_request = (
+            "Son konuşmalarımızı ve şu anki ortamı/pozisyonumuzu göz önüne al. "
+            "Şu an ne yapıyorum, ne giyiyorum veya nasılım? Bunu görselleştirme aracı için İngilizce "
+            "bir resim prompt'una çevir (Sadece virgüllerle ayrılmış İngilizce anime prompt yaz. Örnek: '1girl, solo, anime, bedroom, sitting')."
+        )
+        
+        contents = history + [genai_types.Content(role="user", parts=[genai_types.Part.from_text(text=prompt_request)])]
+        
+        response = client.models.generate_content(
+            model="gemini-3.6-flash",
+            contents=contents
+        )
+
+        if response and response.text:
+            extracted_prompt = response.text.replace("\n", "").strip()
+            enhanced_prompt = f"{extracted_prompt}, masterpiece, top quality, anime style, uncensored, nsfw"
+            seed = random.randint(1000, 999999)
+            image_url = f"https://image.pollinations.ai/prompt/{enhanced_prompt.replace(' ', '%20')}?model=flux&seed={seed}&nologo=true&private=true&safe=false"
+            
+            bot.send_photo(chat_id, image_url, caption="📸 *Şu anki halim...*", parse_mode="Markdown")
+        else:
+            bot.reply_to(message, "Görsel hazırlanamadı.")
+
+    except Exception as e:
+        bot.reply_to(message, f"⚠️ Fotoğraf Üretim Hatası: {str(e)}")
 
 @bot.message_handler(commands=['ciz'])
 def draw_image(message):
