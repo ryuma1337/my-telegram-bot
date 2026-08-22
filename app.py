@@ -44,12 +44,12 @@ PROMPTS = {
     )
 }
 
-# YEDEK MODEL LİSTESİ (Biri çalışmazsa diğeri devreye girer)
+# En hızlı ve en yüksek kotalı ücretsiz modeller sıralaması
 FREE_MODELS = [
-    "google/gemma-2-9b-it:free",
     "meta-llama/llama-3.3-70b-instruct:free",
+    "qwen/qwen-2.5-72b-instruct:free",
     "mistralai/mistral-7b-instruct:free",
-    "qwen/qwen-2.5-72b-instruct:free"
+    "google/gemma-2-9b-it:free"
 ]
 
 def set_bot_commands():
@@ -133,7 +133,6 @@ def chat_ai(message):
         "Content-Type": "application/json"
     }
     
-    # Otomatik Yedek Model Döngüsü
     success = False
     for model_name in FREE_MODELS:
         data = {
@@ -142,7 +141,7 @@ def chat_ai(message):
             "temperature": 0.85
         }
         try:
-            response = requests.post("https://openrouter.ai/api/v1/chat/completions", json=data, headers=headers, timeout=15)
+            response = requests.post("https://openrouter.ai/api/v1/chat/completions", json=data, headers=headers, timeout=30)
             if response.status_code == 200:
                 ai_message = response.json()["choices"][0]["message"]["content"]
                 
@@ -159,7 +158,7 @@ def chat_ai(message):
             continue
 
     if not success:
-        bot.reply_to(message, "Şu an API sunucuları çok yoğun. Lütfen birkaç saniye sonra tekrar dene!")
+        bot.reply_to(message, "Şu an sunucular çok yoğun, lütfen 5 saniye sonra tekrar dene!")
 
 if __name__ == "__main__":
     threading.Thread(target=run_flask).start()
