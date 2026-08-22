@@ -9,6 +9,12 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
+# LOG KONTROLÜ (Render Logs kısmından bakabilirsin)
+print("=== SİSTEM KONTROLÜ SAĞLANIYOR ===")
+print(f"GROQ API KEY YÜKLENDİ Mİ?: {'EVET' if GROQ_API_KEY else 'HAYIR'}")
+print(f"OPENROUTER API KEY YÜKLENDİ Mİ?: {'EVET' if OPENROUTER_API_KEY else 'HAYIR'}")
+print("=================================")
+
 bot = TeleBot(TELEGRAM_BOT_TOKEN)
 app = Flask(__name__)
 
@@ -121,7 +127,7 @@ def chat_ai(message):
 
     messages = [system_prompt] + user_histories[chat_id] + [{"role": "user", "content": user_input}]
 
-    # 1. Öncelik: GROQ API Denemesi
+    # 1. Deneme: GROQ API
     if GROQ_API_KEY:
         headers = {
             "Authorization": f"Bearer {GROQ_API_KEY.strip()}",
@@ -142,10 +148,12 @@ def chat_ai(message):
                     user_histories[chat_id] = user_histories[chat_id][-14:]
                 bot.reply_to(message, ai_message)
                 return
-        except Exception:
-            pass
+            else:
+                print(f"GROQ HATA KODU: {res.status_code}")
+        except Exception as e:
+            print(f"GROQ İSTİKBAL HATASI: {e}")
 
-    # 2. Öncelik (Yedek): OpenRouter API Denemesi
+    # 2. Deneme: OpenRouter API
     if OPENROUTER_API_KEY:
         headers = {
             "Authorization": f"Bearer {OPENROUTER_API_KEY.strip()}",
@@ -166,8 +174,10 @@ def chat_ai(message):
                     user_histories[chat_id] = user_histories[chat_id][-14:]
                 bot.reply_to(message, ai_message)
                 return
-        except Exception:
-            pass
+            else:
+                print(f"OPENROUTER HATA KODU: {res.status_code}")
+        except Exception as e:
+            print(f"OPENROUTER İSTİKBAL HATASI: {e}")
 
     bot.reply_to(message, "⚠️ İki API sunucusu da yanıt vermedi. Render > Environment kısmından GROQ_API_KEY değerini kontrol et.")
 
