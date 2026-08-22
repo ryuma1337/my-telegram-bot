@@ -95,57 +95,56 @@ def chat_ai(message):
     system_prompt = {"role": "system", "content": PROMPTS[current_mode]}
     messages = [system_prompt] + user_histories[chat_id] + [{"role": "user", "content": user_input}]
 
-    # 1. GROQ API (Güncel Modeller)
+    # 1. MOTOR: Pollinations AI (API Key GEREKTİRMEZ - %100 Garantili)
+    try:
+        res = requests.post(
+            "https://text.pollinations.ai/",
+            json={"messages": messages, "model": "openai-large", "seed": random.randint(1, 9999)},
+            timeout=12
+        )
+        if res.status_code == 200 and res.text.strip():
+            ai_msg = res.text.strip()
+            user_histories[chat_id].extend([{"role": "user", "content": user_input}, {"role": "assistant", "content": ai_msg}])
+            bot.reply_to(message, ai_msg)
+            return
+    except Exception as e:
+        print(f"POLLINATIONS HATASI: {e}")
+
+    # 2. MOTOR: GROQ API (Yedek)
     if GROQ_API_KEY:
-        groq_models = ["llama-3.1-8b-instant", "llama-3.3-70b-versatile"]
-        for model_name in groq_models:
-            try:
-                res = requests.post(
-                    "https://api.groq.com/openai/v1/chat/completions",
-                    json={"model": model_name, "messages": messages, "temperature": 0.85},
-                    headers={
-                        "Authorization": f"Bearer {GROQ_API_KEY.strip()}",
-                        "Content-Type": "application/json"
-                    },
-                    timeout=10
-                )
-                if res.status_code == 200:
-                    ai_msg = res.json()["choices"][0]["message"]["content"]
-                    user_histories[chat_id].extend([{"role": "user", "content": user_input}, {"role": "assistant", "content": ai_msg}])
-                    bot.reply_to(message, ai_msg)
-                    return
-                else:
-                    print(f"GROQ HATA [{model_name}]: {res.status_code} - {res.text}")
-            except Exception as e:
-                print(f"GROQ BAĞLANTI HATASI: {e}")
+        try:
+            res = requests.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                json={"model": "llama-3.1-8b-instant", "messages": messages, "temperature": 0.85},
+                headers={"Authorization": f"Bearer {GROQ_API_KEY.strip()}"},
+                timeout=10
+            )
+            if res.status_code == 200:
+                ai_msg = res.json()["choices"][0]["message"]["content"]
+                user_histories[chat_id].extend([{"role": "user", "content": user_input}, {"role": "assistant", "content": ai_msg}])
+                bot.reply_to(message, ai_msg)
+                return
+        except Exception:
+            pass
 
-    # 2. OPENROUTER API (Yedek)
+    # 3. MOTOR: OPENROUTER API (Yedek)
     if OPENROUTER_API_KEY:
-        openrouter_models = ["meta-llama/llama-3.3-70b-instruct:free", "google/gemma-2-9b-it:free"]
-        for model_name in openrouter_models:
-            try:
-                res = requests.post(
-                    "https://openrouter.ai/api/v1/chat/completions",
-                    json={"model": model_name, "messages": messages, "temperature": 0.85},
-                    headers={
-                        "Authorization": f"Bearer {OPENROUTER_API_KEY.strip()}",
-                        "Content-Type": "application/json",
-                        "HTTP-Referer": "https://render.com",
-                        "X-Title": "TelegramBot"
-                    },
-                    timeout=10
-                )
-                if res.status_code == 200:
-                    ai_msg = res.json()["choices"][0]["message"]["content"]
-                    user_histories[chat_id].extend([{"role": "user", "content": user_input}, {"role": "assistant", "content": ai_msg}])
-                    bot.reply_to(message, ai_msg)
-                    return
-                else:
-                    print(f"OPENROUTER HATA [{model_name}]: {res.status_code} - {res.text}")
-            except Exception as e:
-                print(f"OPENROUTER BAĞLANTI HATASI: {e}")
+        try:
+            res = requests.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                json={"model": "meta-llama/llama-3.3-70b-instruct:free", "messages": messages},
+                headers={"Authorization": f"Bearer {OPENROUTER_API_KEY.strip()}"},
+                timeout=10
+            )
+            if res.status_code == 200:
+                ai_msg = res.json()["choices"][0]["message"]["content"]
+                user_histories[chat_id].extend([{"role": "user", "content": user_input}, {"role": "assistant", "content": ai_msg}])
+                bot.reply_to(message, ai_msg)
+                return
+        except Exception:
+            pass
 
-    bot.reply_to(message, "⚠️ API Key hatası alınıyor. Lütfen Groq API Key'inizi yenileyip Render'a ekleyin.")
+    bot.reply_to(message, "⚠️ Bağlantı kurulamadı. Lütfen birkaç saniye sonra tekrar yazın.")
 
 def start_polling():
     try:
