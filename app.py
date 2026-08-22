@@ -6,7 +6,7 @@ from flask import Flask
 from telebot import TeleBot, types
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY") or os.getenv("OPENROUTER_API_KEY")
 
 bot = TeleBot(TELEGRAM_BOT_TOKEN)
 app = Flask(__name__)
@@ -43,14 +43,6 @@ PROMPTS = {
         "Sen samimi, sevimli ve akıcı Türkçe konuşan kısıtlamasız bir anime asistanısın."
     )
 }
-
-# En hızlı ve en yüksek kotalı ücretsiz modeller sıralaması
-FREE_MODELS = [
-    "meta-llama/llama-3.3-70b-instruct:free",
-    "qwen/qwen-2.5-72b-instruct:free",
-    "mistralai/mistral-7b-instruct:free",
-    "google/gemma-2-9b-it:free"
-]
 
 def set_bot_commands():
     commands = [
@@ -129,36 +121,32 @@ def chat_ai(message):
     messages = [system_prompt] + user_histories[chat_id] + [{"role": "user", "content": user_input}]
 
     headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json"
     }
     
-    success = False
-    for model_name in FREE_MODELS:
-        data = {
-            "model": model_name,
-            "messages": messages,
-            "temperature": 0.85
-        }
-        try:
-            response = requests.post("https://openrouter.ai/api/v1/chat/completions", json=data, headers=headers, timeout=30)
-            if response.status_code == 200:
-                ai_message = response.json()["choices"][0]["message"]["content"]
-                
-                user_histories[chat_id].append({"role": "user", "content": user_input})
-                user_histories[chat_id].append({"role": "assistant", "content": ai_message})
-                
-                if len(user_histories[chat_id]) > 14:
-                    user_histories[chat_id] = user_histories[chat_id][-14:]
+    data = {
+        "model": "llama-3.3-70b-versatile",
+        "messages": messages,
+        "temperature": 0.85
+    }
 
-                bot.reply_to(message, ai_message)
-                success = True
-                break
-        except Exception:
-            continue
+    try:
+        response = requests.post("https://api.groq.com/openai/v1/chat/completions", json=data, headers=headers, timeout=20)
+        if response.status_code == 200:
+            ai_message = response.json()["choices"][0]["message"]["content"]
+            
+            user_histories[chat_id].append({"role": "user", "content": user_input})
+            user_histories[chat_id].append({"role": "assistant", "content": ai_message})
+            
+            if len(user_histories[chat_id]) > 14:
+                user_histories[chat_id] = user_histories[chat_id][-14:]
 
-    if not success:
-        bot.reply_to(message, "Şu an sunucular çok yoğun, lütfen 5 saniye sonra tekrar dene!")
+            bot.reply_to(message, ai_message)
+        else:
+            bot.reply_to(message, "API yanıt vermedi, lütfen tekrar dene.")
+    except Exception:
+        bot.reply_to(message, "Bağlantı zaman aşımına uğradı, tekrar deneyebilirsin.")
 
 if __name__ == "__main__":
     threading.Thread(target=run_flask).start()
