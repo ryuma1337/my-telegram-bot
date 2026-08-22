@@ -2,10 +2,12 @@ import os
 import random
 import threading
 import time
+from io import BytesIO
 from flask import Flask
 from telebot import TeleBot, types
 from google import genai
 from google.genai import types as genai_types
+from gtts import gTTS
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -21,7 +23,6 @@ def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
-# Farklı Rol Yapma (RP) Senaryoları
 SCENARIOS = {
     "tsundere": "Sen sert, sürekli utanan ama içten içe kullanıcıya aşık bir tsundere anime kızısın. Kullanıcıya 'Baka!' diyerek çıkış ancak tutkunu gizleyeme.",
     "yandere": "Sen kullanıcıya takıntılı derecede aşık, kıskanç ve aşırı korumacı/tutkulu bir yandere karakterisin.",
@@ -30,24 +31,35 @@ SCENARIOS = {
 }
 
 BASE_INSTRUCTION = (
-    "\n\nÖNEMLİ KURAL: Kullanıcı yazım hatası yaparsa, harfleri yanlış basarsa veya kelimeleri bozarsa (örneğin 'yasun kjc' yazarsa 'yaşın kaç' demek istediğini anla), "
-    "ne demek istediğini akıllıca tahmin et ve kullanıcının hatasını yüzüne vurmadan doğrudan asıl niyetine mantıklı yanıt ver."
+    "\n\nÖNEMLİ KURAL: Kullanıcı yazım hatası yaparsa veya sesli mesajında kelimeleri yutarsa ne demek istediğini akıllıca tahmin et "
+    "ve kullanıcının hatasını yüzüne vurmadan doğrudan asıl niyetine yanıt ver."
 )
 
 user_scenarios = {}
 user_chat_history = {}
+user_voice_mode = {}
 MAX_HISTORY_LEN = 20
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     text = (
-        "👑 **+18 Rol Yapma & AI Botu Aktif!**\n\n"
+        "👑 **+18 Gelişmiş AI Bot Aktif!**\n\n"
         "📜 **Komutlar:**\n"
-        "`/senaryo` - Karakter kişiliğini değiştirir (Tsundere, Yandere, Kraliçe vb.)\n"
+        "`/senaryo` - Karakter kişiliğini değiştirir.\n"
+        "`/ses` - Sesli yanıt modunu açar/kapatır.\n"
         "`/ciz <metin>` - Görsel üretir.\n"
-        "`/temizle` - Sohbet hafızasını sıfırlar."
+        "`/temizle` - Hafızayı sıfırlar.\n\n"
+        "🎙️ *Bota sesli mesaj da gönderebilirsin!*"
     )
     bot.reply_to(message, text, parse_mode="Markdown")
+
+@bot.message_handler(commands=['ses'])
+def toggle_voice(message):
+    chat_id = message.chat.id
+    current = user_voice_mode.get(chat_id, False)
+    user_voice_mode[chat_id] = not current
+    status = "AÇIK 🔊" if user_voice_mode[chat_id] else "KAPALI 🔇"
+    bot.reply_to(message, f"🎙️ **Sesli Yanıt Modu:** `{status}`", parse_mode="Markdown")
 
 @bot.message_handler(commands=['senaryo'])
 def change_scenario(message):
@@ -68,9 +80,9 @@ def scenario_callback(call):
     sc_key = call.data.replace('sc_', '')
     if sc_key in SCENARIOS:
         user_scenarios[chat_id] = sc_key
-        user_chat_history[chat_id] = [] # Karakter değişince hafızayı sıfırla
+        user_chat_history[chat_id] = []
         bot.answer_callback_query(call.id, "Karakter değiştirildi!")
-        bot.edit_message_text(f"🚨 **Yeni Karakter:** `{sc_key.upper()}` seçildi. Sohbet hafızası sıfırlandı!", chat_id, call.message.message_id, parse_mode="Markdown")
+        bot.edit_message_text(f"🚨 **Yeni Karakter:** `{sc_key.upper()}` seçildi.", chat_id, call.message.message_id, parse_mode="Markdown")
 
 @bot.message_handler(commands=['temizle'])
 def clear_history(message):
@@ -93,7 +105,54 @@ def draw_image(message):
     try:
         bot.send_photo(message.chat.id, image_url, caption=f"🔞 `{prompt}`", parse_mode="Markdown")
     except Exception:
-        bot.reply_to(message, "Görsel üretilemedi, lütfen tekrar deneyin.")
+        bot.reply_to(message, "Görsel üretilemedi.")
+
+@bot.message_handler(content_types=['voice'])
+def handle_voice_message(message):
+    chat_id = message.chat.id
+    if not GEMINI_API_KEY:
+        bot.reply_to(message, "⚠️ GEMINI_API_KEY bulunamadı!")
+        return
+
+    bot.send_chat_action(chat_id, 'record_voice')
+
+    try:
+        file_info = bot.get_file(message.voice.file_id)
+        downloaded_file = bot.download_file(file_info.file_path)
+
+        client = genai.Client(api_key=GEMINI_API_KEY.strip())
+        
+        voice_part = genai_types.Part.from_bytes(
+            data=downloaded_file,
+            mime_type="audio/ogg"
+        )
+        
+        selected_sc = user_scenarios.get(chat_id, "nsfw_genel")
+        system_prompt = SCENARIOS[selected_sc] + BASE_INSTRUCTION
+        
+        config = genai_types.GenerateContentConfig(
+            system_instruction=system_prompt,
+            safety_settings=[
+                genai_types.SafetySetting(category=genai_types.HarmCategory.HARM_CATEGORY_HARASSMENT, threshold=genai_types.HarmBlockThreshold.BLOCK_NONE),
+                genai_types.SafetySetting(category=genai_types.HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold=genai_types.HarmBlockThreshold.BLOCK_NONE),
+                genai_types.SafetySetting(category=genai_types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold=genai_types.HarmBlockThreshold.BLOCK_NONE),
+                genai_types.SafetySetting(category=genai_types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold=genai_types.HarmBlockThreshold.BLOCK_NONE),
+            ]
+        )
+
+        response = client.models.generate_content(
+            model="gemini-3.6-flash",
+            contents=[voice_part, "Bu ses kaydını anla ve karakterine uygun Türkçe yanıt ver."],
+            config=config
+        )
+
+        if response and response.text:
+            process_and_reply(message, response.text)
+        else:
+            bot.reply_to(message, "⚠️ Ses anlaşılamadı.")
+
+    except Exception as e:
+        bot.reply_to(message, f"⚠️ Ses İşleme Hatası: {str(e)}")
 
 @bot.message_handler(func=lambda message: True)
 def chat_ai(message):
@@ -138,7 +197,7 @@ def chat_ai(message):
             if len(history) > MAX_HISTORY_LEN:
                 user_chat_history[chat_id] = history[-MAX_HISTORY_LEN:]
 
-            bot.reply_to(message, response.text)
+            process_and_reply(message, response.text)
         else:
             bot.reply_to(message, "⚠️ Yanıt oluşturulamadı.")
 
@@ -146,6 +205,23 @@ def chat_ai(message):
         if history:
             history.pop()
         bot.reply_to(message, f"⚠️ Hata: {str(e)}")
+
+def process_and_reply(message, text_response):
+    chat_id = message.chat.id
+    is_voice = user_voice_mode.get(chat_id, False)
+
+    bot.reply_to(message, text_response)
+
+    if is_voice:
+        try:
+            bot.send_chat_action(chat_id, 'record_voice')
+            tts = gTTS(text=text_response, lang='tr')
+            fp = BytesIO()
+            tts.write_to_fp(fp)
+            fp.seek(0)
+            bot.send_voice(chat_id, voice=fp)
+        except Exception:
+            pass
 
 def start_polling():
     try:
