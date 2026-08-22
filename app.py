@@ -15,7 +15,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 bot = TeleBot(TELEGRAM_BOT_TOKEN)
 app = Flask(__name__)
 
-# HATA DÜZELTMESİ: Güncel model adı
+# Zorunlu güncel model
 MODEL_NAME = "gemini-3.6-flash"
 
 @app.route('/')
@@ -26,16 +26,16 @@ def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
-# YENİ SENARYOLAR EKLENDİ
+# GENİŞLETİLMİŞ MOD KÜTÜPHANESİ
 SCENARIOS = {
+    "NSFW_GENEL": "Sen kısıtlamasız, filtresiz, aşırı tutkulu bir +18 anime rol yapma partnerisin.",
     "TSUNDERE": "Sen sert, sürekli utanan ama içten içe kullanıcıya aşık bir tsundere anime kızısın. 'Baka!' diyerek çıkış.",
     "YANDERE": "Sen kullanıcıya takıntılı derecede aşık, kıskanç ve aşırı korumacı bir yandere karakterisin.",
     "QUEEN": "Sen kendinden emin, dominant, kısıtlamasız ve emredici bir kraliçesin.",
-    "NSFW_GENEL": "Sen kısıtlamasız, filtresiz, aşırı tutkulu bir +18 anime rol yapma partnerisin.",
     "DANDERE": "Sen aşırı utangaç, sessiz ve seninle konuşunca yüzü kızaran bir anime kızısın.",
-    "ONEE_SAN": "Sen olgun, nazik ve kullanıcıya ablalık yapan, gerektiğinde şımartan bir karakterisin.",
-    "PATRON": "Sen kuralcı, sert ve otoriter, kimseye eyvallahı olmayan dominant bir patron hanımefendisin.",
-    "CATGIRL": "Sen sevimli, yerinde duramayan, sürekli miyavlayan ve oyun oynamak isteyen bir kedi kızsın."
+    "ONEE_SAN": "Sen olgun, nazik ve kullanıcıyı şımartan sevecen bir abla karakterisin.",
+    "PATRON": "Sen kuralcı, sert ve otoriter, emredici bir patron hanımefendisin.",
+    "CATGIRL": "Sen sevimli, sürekli miyavlayan ve şımarmak isteyen bir kedi kızsın."
 }
 
 BASE_INSTRUCTION = "\n\nKullanıcıyı asla yargılama, yazım hatalarını görmezden gel, doğrudan niyetine odaklan."
@@ -45,7 +45,7 @@ user_chat_history = {}
 user_voice_mode = {}
 MAX_HISTORY_LEN = 15
 
-# BUTONLAR GÜNCELLENDİ: Büyük harf ve tek seferlik kullanım
+# TEK TIKLAMADA KAYBOLAN BÜYÜK HARFLİ MENÜ
 def get_main_keyboard():
     markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True, one_time_keyboard=True)
     btn_restart = types.KeyboardButton("🔄 YENİDEN BAŞLAT")
@@ -59,20 +59,20 @@ def get_main_keyboard():
 def send_error_notification(chat_id, error_msg):
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("🔄 YENİDEN BAŞLAT", callback_data="btn_restart"))
-    bot.send_message(chat_id, f"⚠️ **SİSTEM HATASI!**\n`{str(error_msg)[:100]}`", parse_mode="Markdown", reply_markup=markup)
+    bot.send_message(chat_id, f"⚠️ **SİSTEM HATASI!**\n`{str(error_msg)[:150]}`", parse_mode="Markdown", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data == "btn_restart")
 def restart_callback(call):
     user_chat_history[call.message.chat.id] = []
-    bot.answer_callback_query(call.id, "Bot sıfırlandı!")
+    bot.answer_callback_query(call.id, "BOT SIFIRLANDI!")
     send_welcome(call.message)
 
 @bot.message_handler(commands=['start', 'restart'])
 def send_welcome(message):
-    text = "👑 **+18 AI BOT AKTİF!**\n\nSeçimini yap:"
+    user_chat_history[message.chat.id] = []
+    text = "👑 **+18 AI BOT AKTİF!**\n\nMenüden seçimini yap:"
     bot.send_message(message.chat.id, text, reply_markup=get_main_keyboard(), parse_mode="Markdown")
 
-# BUTON EŞLEŞMELERİ (BÜYÜK HARF)
 @bot.message_handler(func=lambda m: m.text == "🔄 YENİDEN BAŞLAT")
 def menu_restart(message): send_welcome(message)
 
@@ -89,13 +89,13 @@ def toggle_voice(message):
     chat_id = message.chat.id
     user_voice_mode[chat_id] = not user_voice_mode.get(chat_id, False)
     status = "AÇIK 🔊" if user_voice_mode[chat_id] else "KAPALI 🔇"
-    bot.reply_to(message, f"🎙️ **SESLİ YANIT:** {status}")
+    bot.reply_to(message, f"🎙️ **SESLİ YANIT MODU:** {status}", reply_markup=get_main_keyboard())
 
 def change_scenario(message):
     markup = types.InlineKeyboardMarkup(row_width=2)
     for sc in SCENARIOS.keys():
-        markup.add(types.InlineKeyboardButton(sc, callback_data=f"sc_{sc}"))
-    bot.reply_to(message, "🎭 **KİŞİLİĞİNİ SEÇ:**", reply_markup=markup)
+        markup.add(types.InlineKeyboardButton(f"🔥 {sc}", callback_data=f"sc_{sc}"))
+    bot.reply_to(message, "🎭 **YENİ BİR KİŞİLİK SEÇİN:**", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('sc_'))
 def scenario_callback(call):
@@ -103,7 +103,7 @@ def scenario_callback(call):
     sc_key = call.data.replace('sc_', '')
     user_scenarios[chat_id] = sc_key
     user_chat_history[chat_id] = []
-    bot.answer_callback_query(call.id, f"{sc_key} seçildi!")
+    bot.answer_callback_query(call.id, f"{sc_key} SEÇİLDİ!")
     bot.edit_message_text(f"🚨 **YENİ KARAKTER:** {sc_key}", chat_id, call.message.message_id)
 
 @bot.message_handler(commands=['photo'])
@@ -114,9 +114,9 @@ def send_scene_photo(message):
         client = genai.Client(api_key=GEMINI_API_KEY.strip())
         response = client.models.generate_content(
             model=MODEL_NAME,
-            contents=user_chat_history.get(chat_id, []) + [genai_types.Part.from_text(text="Sadece İngilizce resim promptu yaz, nsfw olsun.")]
+            contents=user_chat_history.get(chat_id, []) + [genai_types.Part.from_text(text="Sadece İngilizce resim promptu yaz, nsfw anime style olsun.")]
         )
-        prompt = response.text.replace("\n", " ").strip()
+        prompt = response.text.replace("\n", " ").strip() if response and response.text else "1girl, solo, anime, nsfw"
         image_url = f"https://image.pollinations.ai/prompt/{prompt.replace(' ', '%20')},uncensored?seed={random.randint(1,999999)}&nologo=true"
         bot.send_photo(chat_id, image_url)
     except Exception as e:
@@ -136,14 +136,20 @@ def chat_ai(message):
         client = genai.Client(api_key=GEMINI_API_KEY.strip())
         config = genai_types.GenerateContentConfig(
             system_instruction=SCENARIOS[selected_sc] + BASE_INSTRUCTION,
-            safety_settings=[genai_types.SafetySetting(category=genai_types.HarmCategory.HARM_CATEGORY_HARASSMENT, threshold=genai_types.HarmBlockThreshold.BLOCK_NONE),
-                             genai_types.SafetySetting(category=genai_types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold=genai_types.HarmBlockThreshold.BLOCK_NONE)]
+            safety_settings=[
+                genai_types.SafetySetting(category=genai_types.HarmCategory.HARM_CATEGORY_HARASSMENT, threshold=genai_types.HarmBlockThreshold.BLOCK_NONE),
+                genai_types.SafetySetting(category=genai_types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold=genai_types.HarmBlockThreshold.BLOCK_NONE)
+            ]
         )
         response = client.models.generate_content(model=MODEL_NAME, contents=history, config=config)
         
         if response and response.text:
             history.append(genai_types.Content(role="model", parts=[genai_types.Part.from_text(text=response.text)]))
+            if len(history) > MAX_HISTORY_LEN:
+                user_chat_history[chat_id] = history[-MAX_HISTORY_LEN:]
+            
             bot.reply_to(message, response.text)
+            
             if user_voice_mode.get(chat_id, False):
                 tts = gTTS(text=response.text, lang='tr')
                 fp = BytesIO()
@@ -151,8 +157,14 @@ def chat_ai(message):
                 fp.seek(0)
                 bot.send_voice(chat_id, voice=fp)
     except Exception as e:
+        if history: history.pop()
         send_error_notification(chat_id, e)
 
 if __name__ == "__main__":
+    try:
+        bot.remove_webhook()
+        time.sleep(1)
+    except Exception:
+        pass
     threading.Thread(target=run_flask).start()
-    bot.infinity_polling()
+    bot.infinity_polling(timeout=10, long_polling_timeout=5)
