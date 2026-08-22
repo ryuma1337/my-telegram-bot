@@ -95,14 +95,18 @@ def chat_ai(message):
     system_prompt = {"role": "system", "content": PROMPTS[current_mode]}
     messages = [system_prompt] + user_histories[chat_id] + [{"role": "user", "content": user_input}]
 
-    # 1. GROQ DENEMESİ
+    # 1. GROQ API (Güncel Modeller)
     if GROQ_API_KEY:
-        for model_name in ["llama-3.1-8b-instant", "llama3-8b-8192"]:
+        groq_models = ["llama-3.1-8b-instant", "llama-3.3-70b-versatile"]
+        for model_name in groq_models:
             try:
                 res = requests.post(
                     "https://api.groq.com/openai/v1/chat/completions",
                     json={"model": model_name, "messages": messages, "temperature": 0.85},
-                    headers={"Authorization": f"Bearer {GROQ_API_KEY.strip()}"},
+                    headers={
+                        "Authorization": f"Bearer {GROQ_API_KEY.strip()}",
+                        "Content-Type": "application/json"
+                    },
                     timeout=10
                 )
                 if res.status_code == 200:
@@ -110,17 +114,25 @@ def chat_ai(message):
                     user_histories[chat_id].extend([{"role": "user", "content": user_input}, {"role": "assistant", "content": ai_msg}])
                     bot.reply_to(message, ai_msg)
                     return
-            except Exception:
-                pass
+                else:
+                    print(f"GROQ HATA [{model_name}]: {res.status_code} - {res.text}")
+            except Exception as e:
+                print(f"GROQ BAĞLANTI HATASI: {e}")
 
-    # 2. OPENROUTER YEDEK DENEMESİ
+    # 2. OPENROUTER API (Yedek)
     if OPENROUTER_API_KEY:
-        for model_name in ["meta-llama/llama-3.3-70b-instruct:free", "mistralai/mistral-7b-instruct:free"]:
+        openrouter_models = ["meta-llama/llama-3.3-70b-instruct:free", "google/gemma-2-9b-it:free"]
+        for model_name in openrouter_models:
             try:
                 res = requests.post(
                     "https://openrouter.ai/api/v1/chat/completions",
                     json={"model": model_name, "messages": messages, "temperature": 0.85},
-                    headers={"Authorization": f"Bearer {OPENROUTER_API_KEY.strip()}"},
+                    headers={
+                        "Authorization": f"Bearer {OPENROUTER_API_KEY.strip()}",
+                        "Content-Type": "application/json",
+                        "HTTP-Referer": "https://render.com",
+                        "X-Title": "TelegramBot"
+                    },
                     timeout=10
                 )
                 if res.status_code == 200:
@@ -128,10 +140,12 @@ def chat_ai(message):
                     user_histories[chat_id].extend([{"role": "user", "content": user_input}, {"role": "assistant", "content": ai_msg}])
                     bot.reply_to(message, ai_msg)
                     return
-            except Exception:
-                pass
+                else:
+                    print(f"OPENROUTER HATA [{model_name}]: {res.status_code} - {res.text}")
+            except Exception as e:
+                print(f"OPENROUTER BAĞLANTI HATASI: {e}")
 
-    bot.reply_to(message, "⚠️ API sunucuları yoğun. Lütfen tekrar yazın.")
+    bot.reply_to(message, "⚠️ API Key hatası alınıyor. Lütfen Groq API Key'inizi yenileyip Render'a ekleyin.")
 
 def start_polling():
     try:
