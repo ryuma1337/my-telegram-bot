@@ -15,7 +15,8 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 bot = TeleBot(TELEGRAM_BOT_TOKEN)
 app = Flask(__name__)
 
-MODEL_NAME = "gemini-2.5-flash"
+# Model ismi güncellendi
+MODEL_NAME = "gemini-1.5-flash"
 
 @app.route('/')
 def home():
@@ -242,7 +243,6 @@ def process_and_reply(message, text_response):
             pass
 
 if __name__ == "__main__":
-    # Webhook temizleme
     try:
         bot.remove_webhook()
         time.sleep(1)
@@ -250,5 +250,4 @@ if __name__ == "__main__":
         pass
         
     threading.Thread(target=run_flask).start()
-    print("Bot dinlemeye başladı...")
     bot.infinity_polling(timeout=10, long_polling_timeout=5)
