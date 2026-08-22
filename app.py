@@ -6,7 +6,6 @@ from io import BytesIO
 import requests
 from flask import Flask
 from telebot import TeleBot, types
-import google.generativeai as genai
 from gtts import gTTS
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -15,10 +14,6 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 bot = TeleBot(TELEGRAM_BOT_TOKEN)
 app = Flask(__name__)
-
-# Gemini API Yapılandırması
-if GEMINI_API_KEY and GEMINI_API_KEY.strip():
-    genai.configure(api_key=GEMINI_API_KEY.strip())
 
 @app.route('/')
 def home():
@@ -61,6 +56,41 @@ def send_error_notification(chat_id, error_msg):
     markup.add(types.InlineKeyboardButton("🔄 YENİDEN BAŞLAT", callback_data="btn_restart"))
     bot.send_message(chat_id, f"⚠️ **SİSTEM HATASI DETAYI!**\n\n`{str(error_msg)}`", parse_mode="Markdown", reply_markup=markup)
 
+def call_gemini_rest(history, full_prompt):
+    """SDK bağımlılığını kaldıran direkt REST API isteği"""
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY.strip()}"
+    
+    contents = []
+    for h in history:
+        role = "user" if h.get("role") == "user" else "model"
+        contents.append({
+            "role": role,
+            "parts": [{"text": h.get("text", "")}]
+        })
+        
+    payload = {
+        "system_instruction": {
+            "parts": [{"text": full_prompt}]
+        },
+        "contents": contents,
+        "safetySettings": [
+            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
+        ]
+    }
+    
+    res = requests.post(url, json=payload, timeout=15)
+    if res.status_code == 200:
+        data = res.json()
+        try:
+            return data['candidates'][0]['content']['parts'][0]['text']
+        except KeyError:
+            raise Exception("Gemini boş yanıt döndürdü.")
+    else:
+        raise Exception(f"Gemini REST Kod {res.status_code}: {res.text[:100]}")
+
 def call_openrouter(history, full_prompt):
     url = "https://openrouter.ai/api/v1/chat/completions"
     headers = {
@@ -73,23 +103,28 @@ def call_openrouter(history, full_prompt):
         role = "assistant" if h.get("role") == "model" else "user"
         messages.append({"role": role, "content": h.get("text", "")})
 
-    # OpenRouter'da %100 açık olan ücretsiz modeller
+    # Güncel ve %100 çalışan ücretsiz OpenRouter modelleri
     models = [
-        "meta-llama/llama-3.2-11b-vision-instruct:free",
-        "qwen/qwen-2.5-7b-instruct:free",
-        "mistralai/mistral-7b-instruct:free"
+        "google/gemini-2.0-flash-lite-preview-02-05:free",
+        "deepseek/deepseek-r1:free",
+        "meta-llama/llama-3.3-70b-instruct:free",
+        "qwen/qwen-2.5-7b-instruct:free"
     ]
     
+    last_err = ""
     for m in models:
         try:
             payload = {"model": m, "messages": messages}
             res = requests.post(url, json=payload, headers=headers, timeout=12)
             if res.status_code == 200:
                 return res.json()['choices'][0]['message']['content']
-        except Exception:
+            else:
+                last_err = f"{m} -> {res.status_code}"
+        except Exception as e:
+            last_err = str(e)
             continue
 
-    raise Exception("OpenRouter: Tüm yedek modeller meşgul/erişilemez.")
+    raise Exception(f"OpenRouter Tüm Modeller Başarısız. Son Durum: {last_err}")
 
 def get_ai_response(chat_id, raw_history, system_prompt):
     full_prompt = system_prompt + BASE_INSTRUCTION
@@ -98,29 +133,9 @@ def get_ai_response(chat_id, raw_history, system_prompt):
     # 1. GEMINI DENEMESİ
     if GEMINI_API_KEY and GEMINI_API_KEY.strip():
         try:
-            # Standart stable model
-            model = genai.GenerativeModel(
-                model_name="gemini-1.5-flash",
-                system_instruction=full_prompt,
-                safety_settings=[
-                    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-                    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"}
-                ]
-            )
-            
-            gemini_contents = []
-            for item in raw_history:
-                gemini_contents.append({
-                    "role": item["role"],
-                    "parts": [item["text"]]
-                })
-                
-            response = model.generate_content(gemini_contents)
-            if response and response.text:
-                return response.text
-            error_logs.append("Gemini: Boş yanıt döndü.")
+            return call_gemini_rest(raw_history, full_prompt)
         except Exception as e:
-            error_logs.append(f"Gemini Hatası: {str(e)[:80]}")
+            error_logs.append(f"Gemini Hatası: {str(e)}")
     else:
         error_logs.append("GEMINI_API_KEY Yok!")
 
@@ -129,7 +144,7 @@ def get_ai_response(chat_id, raw_history, system_prompt):
         try:
             return call_openrouter(raw_history, full_prompt)
         except Exception as e:
-            error_logs.append(f"OpenRouter Hatası: {str(e)[:80]}")
+            error_logs.append(f"OpenRouter Hatası: {str(e)}")
     else:
         error_logs.append("OPENROUTER_API_KEY Yok!")
 
