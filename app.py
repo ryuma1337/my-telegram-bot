@@ -57,8 +57,8 @@ def send_error_notification(chat_id, error_msg):
     bot.send_message(chat_id, f"⚠️ **SİSTEM HATASI DETAYI!**\n\n`{str(error_msg)}`", parse_mode="Markdown", reply_markup=markup)
 
 def call_gemini_rest(history, full_prompt):
-    # En güncel Gemini 2.0 Flash REST endpoint'i
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY.strip()}"
+    # Standart ve uzun süreli desteklenen Gemini modelleri
+    gemini_models = ["gemini-1.5-pro", "gemini-1.5-flash-8b"]
     
     contents = []
     for h in history:
@@ -81,37 +81,21 @@ def call_gemini_rest(history, full_prompt):
         ]
     }
     
-    res = requests.post(url, json=payload, timeout=15)
-    if res.status_code == 200:
-        data = res.json()
+    last_err = ""
+    for m in gemini_models:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={GEMINI_API_KEY.strip()}"
         try:
-            return data['candidates'][0]['content']['parts'][0]['text']
-        except KeyError:
-            raise Exception("Gemini boş yanıt döndü.")
-    else:
-        raise Exception(f"Gemini REST {res.status_code}: {res.text[:80]}")
-
-def get_active_free_openrouter_models():
-    """OpenRouter'daki TÜM aktif ücretsiz modelleri canlı olarak çeker"""
-    try:
-        res = requests.get("https://openrouter.ai/api/v1/models", timeout=5)
-        if res.status_code == 200:
-            all_models = res.json().get('data', [])
-            # İsmi :free ile biten tüm modelleri ayıkla
-            free_models = [m['id'] for m in all_models if m['id'].endswith(':free')]
-            if free_models:
-                return free_models
-    except Exception:
-        pass
-    
-    # Canlı liste çekilemezse varsayılan yedek liste
-    return [
-        "google/gemini-2.0-flash-lite-preview-02-05:free",
-        "deepseek/deepseek-r1:free",
-        "meta-llama/llama-3.3-70b-instruct:free",
-        "qwen/qwen-2.5-7b-instruct:free",
-        "mistralai/mistral-7b-instruct:free"
-    ]
+            res = requests.post(url, json=payload, timeout=12)
+            if res.status_code == 200:
+                data = res.json()
+                return data['candidates'][0]['content']['parts'][0]['text']
+            else:
+                last_err = f"{m} ({res.status_code})"
+        except Exception as e:
+            last_err = str(e)
+            continue
+            
+    raise Exception(f"Gemini REST Başarısız: {last_err}")
 
 def call_openrouter(history, full_prompt):
     url = "https://openrouter.ai/api/v1/chat/completions"
@@ -125,24 +109,27 @@ def call_openrouter(history, full_prompt):
         role = "assistant" if h.get("role") == "model" else "user"
         messages.append({"role": role, "content": h.get("text", "")})
 
-    # Canlı çekilen ücretsiz modeller
-    models_to_try = get_active_free_openrouter_models()
+    # 'openrouter/auto' ifadesi OpenRouter'ın aktif çalışan en uygun modeli otomatik seçmesini sağlar!
+    models = [
+        "openrouter/auto",
+        "meta-llama/llama-3.1-8b-instruct:free",
+        "mistralai/mistral-7b-instruct:free"
+    ]
     
     last_err = ""
-    # Çalışan bir model bulana kadar hepsini sırayla dener
-    for model_name in models_to_try:
+    for model_name in models:
         try:
             payload = {"model": model_name, "messages": messages}
-            res = requests.post(url, json=payload, headers=headers, timeout=8)
+            res = requests.post(url, json=payload, headers=headers, timeout=12)
             if res.status_code == 200:
                 return res.json()['choices'][0]['message']['content']
             else:
-                last_err = f"{model_name} ({res.status_code})"
+                last_err = f"{model_name} -> {res.status_code}"
         except Exception as e:
             last_err = str(e)
             continue
 
-    raise Exception(f"OpenRouter Tüm Modeller Başarısız. Son Hata: {last_err}")
+    raise Exception(f"OpenRouter Otomatik Yönlendirme Hatası: {last_err}")
 
 def get_ai_response(chat_id, raw_history, system_prompt):
     full_prompt = system_prompt + BASE_INSTRUCTION
@@ -157,7 +144,7 @@ def get_ai_response(chat_id, raw_history, system_prompt):
     else:
         error_logs.append("GEMINI_API_KEY Yok!")
 
-    # 2. OPENROUTER YEDEĞİ (Dinamik Otomatik Tarama)
+    # 2. OPENROUTER YEDEĞİ (Otomatik Model Seçimli)
     if OPENROUTER_API_KEY and OPENROUTER_API_KEY.strip():
         try:
             return call_openrouter(raw_history, full_prompt)
