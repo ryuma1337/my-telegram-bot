@@ -18,7 +18,8 @@ bot = TeleBot(TELEGRAM_BOT_TOKEN)
 app = Flask(__name__)
 
 GEMINI_MODEL_NAME = "gemini-3.6-flash"
-# Groq üzerinde %100 aktif ve güncel çalışan modeller
+
+# Sadece %100 Aktif ve Güncel Groq Modelleri
 GROQ_MODELS = [
     "llama-3.3-70b-versatile",
     "llama-3.1-8b-instant",
@@ -90,7 +91,7 @@ def get_ai_response(chat_id, history, system_prompt):
         except Exception as e:
             print(f"Gemini Hatası ({e}), Groq sistemine geçiliyor...")
 
-    # 2. DENEME: GROQ API (Otomatik Model Geçişi)
+    # 2. DENEME: GROQ API (Otomatik Yedek Modeller)
     if GROQ_API_KEY:
         groq_client = Groq(api_key=GROQ_API_KEY.strip())
         groq_messages = [{"role": "system", "content": full_prompt}]
@@ -101,10 +102,10 @@ def get_ai_response(chat_id, history, system_prompt):
             groq_messages.append({"role": role, "content": text})
 
         last_error = None
-        for model in GROQ_MODELS:
+        for model_name in GROQ_MODELS:
             try:
                 completion = groq_client.chat.completions.create(
-                    model=model,
+                    model=model_name,
                     messages=groq_messages,
                     temperature=0.8,
                     max_tokens=1000
@@ -112,12 +113,12 @@ def get_ai_response(chat_id, history, system_prompt):
                 return completion.choices[0].message.content
             except Exception as groq_err:
                 last_error = groq_err
-                print(f"Groq model {model} hatası: {groq_err}. Sonraki model deneniyor...")
+                print(f"Groq model hatası ({model_name}): {groq_err}. Sonraki deneniyor...")
                 continue
                 
         raise Exception(f"Tüm Groq modelleri başarısız: {last_error}")
 
-    raise Exception("API anahtarları eksik veya geçersiz!")
+    raise Exception("API anahtarları eksik veya yetersiz!")
 
 @bot.callback_query_handler(func=lambda call: call.data == "btn_restart")
 def restart_callback(call):
