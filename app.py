@@ -2,12 +2,16 @@ import os
 import random
 import threading
 import time
-import requests
+import google.generativeai as genai
 from flask import Flask
 from telebot import TeleBot, types
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+# Gemini API Yapılandırması
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY.strip())
 
 bot = TeleBot(TELEGRAM_BOT_TOKEN)
 app = Flask(__name__)
@@ -29,6 +33,14 @@ PROMPTS = {
 }
 
 user_modes = {}
+
+# Güvenlik Filtrelerini Tamamen Kapatma (NSFW Modu İçin)
+SAFETY_SETTINGS = [
+    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
+]
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
@@ -56,46 +68,32 @@ def chat_ai(message):
         bot.reply_to(message, "⚠️ GEMINI_API_KEY bulunamadı! Render Environment sekmesinden ekleyin.")
         return
 
-    # Güncel Gemini 2.0 Flash Endpoint'i
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY.strip()}"
-    
-    payload = {
-        "contents": [
-            {
-                "parts": [
-                    {"text": f"{system_prompt}\n\nKullanıcı: {user_input}"}
-                ]
-            }
-        ],
-        "safetySettings": [
-            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
-        ]
-    }
+    full_prompt = f"{system_prompt}\n\nKullanıcı: {user_input}"
 
     try:
-        res = requests.post(url, json=payload, timeout=15)
-        if res.status_code == 200:
-            data = res.json()
-            try:
-                ai_msg = data['candidates'][0]['content']['parts'][0]['text']
-                bot.reply_to(message, ai_msg)
-            except (KeyError, IndexError):
-                bot.reply_to(message, "⚠️ Yanıt oluşturulamadı (İçerik filtresine takılmış olabilir).")
+        # SDK üzerinden model çağrısı (404 hatasını imkansız kılar)
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        response = model.generate_content(
+            full_prompt,
+            safety_settings=SAFETY_SETTINGS
+        )
+        
+        if response.text:
+            bot.reply_to(message, response.text)
         else:
-            # Yedek Model Denemesi (gemini-1.5-flash-8b)
-            fallback_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-8b:generateContent?key={GEMINI_API_KEY.strip()}"
-            res_fb = requests.post(fallback_url, json=payload, timeout=15)
-            if res_fb.status_code == 200:
-                data_fb = res_fb.json()
-                ai_msg = data_fb['candidates'][0]['content']['parts'][0]['text']
-                bot.reply_to(message, ai_msg)
-            else:
-                bot.reply_to(message, f"⚠️ API Hatası: KOD {res.status_code} - {res.text}")
+            bot.reply_to(message, "⚠️ İçerik filtresi yanıtı engelledi.")
+            
     except Exception as e:
-        bot.reply_to(message, "⚠️ Bağlantı zaman aşımına uğradı, tekrar deneyin.")
+        # Alternatif güncel model denemesi
+        try:
+            model_alt = genai.GenerativeModel('gemini-2.0-flash')
+            response_alt = model_alt.generate_content(
+                full_prompt,
+                safety_settings=SAFETY_SETTINGS
+            )
+            bot.reply_to(message, response_alt.text)
+        except Exception as err:
+            bot.reply_to(message, f"⚠️ API Hatası: {str(err)}")
 
 def start_polling():
     try:
