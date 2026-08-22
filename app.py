@@ -6,7 +6,8 @@ from flask import Flask
 from telebot import TeleBot, types
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY") or os.getenv("OPENROUTER_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 bot = TeleBot(TELEGRAM_BOT_TOKEN)
 app = Flask(__name__)
@@ -120,34 +121,55 @@ def chat_ai(message):
 
     messages = [system_prompt] + user_histories[chat_id] + [{"role": "user", "content": user_input}]
 
-    headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    
-    # Kesin çalışan Groq modeli
-    data = {
-        "model": "llama-3.1-8b-instant",
-        "messages": messages,
-        "temperature": 0.85
-    }
+    # 1. Öncelik: GROQ API Denemesi
+    if GROQ_API_KEY:
+        headers = {
+            "Authorization": f"Bearer {GROQ_API_KEY.strip()}",
+            "Content-Type": "application/json"
+        }
+        data = {
+            "model": "llama-3.1-8b-instant",
+            "messages": messages,
+            "temperature": 0.85
+        }
+        try:
+            res = requests.post("https://api.groq.com/openai/v1/chat/completions", json=data, headers=headers, timeout=15)
+            if res.status_code == 200:
+                ai_message = res.json()["choices"][0]["message"]["content"]
+                user_histories[chat_id].append({"role": "user", "content": user_input})
+                user_histories[chat_id].append({"role": "assistant", "content": ai_message})
+                if len(user_histories[chat_id]) > 14:
+                    user_histories[chat_id] = user_histories[chat_id][-14:]
+                bot.reply_to(message, ai_message)
+                return
+        except Exception:
+            pass
 
-    try:
-        response = requests.post("https://api.groq.com/openai/v1/chat/completions", json=data, headers=headers, timeout=20)
-        if response.status_code == 200:
-            ai_message = response.json()["choices"][0]["message"]["content"]
-            
-            user_histories[chat_id].append({"role": "user", "content": user_input})
-            user_histories[chat_id].append({"role": "assistant", "content": ai_message})
-            
-            if len(user_histories[chat_id]) > 14:
-                user_histories[chat_id] = user_histories[chat_id][-14:]
+    # 2. Öncelik (Yedek): OpenRouter API Denemesi
+    if OPENROUTER_API_KEY:
+        headers = {
+            "Authorization": f"Bearer {OPENROUTER_API_KEY.strip()}",
+            "Content-Type": "application/json"
+        }
+        data = {
+            "model": "meta-llama/llama-3.3-70b-instruct:free",
+            "messages": messages,
+            "temperature": 0.85
+        }
+        try:
+            res = requests.post("https://openrouter.ai/api/v1/chat/completions", json=data, headers=headers, timeout=15)
+            if res.status_code == 200:
+                ai_message = res.json()["choices"][0]["message"]["content"]
+                user_histories[chat_id].append({"role": "user", "content": user_input})
+                user_histories[chat_id].append({"role": "assistant", "content": ai_message})
+                if len(user_histories[chat_id]) > 14:
+                    user_histories[chat_id] = user_histories[chat_id][-14:]
+                bot.reply_to(message, ai_message)
+                return
+        except Exception:
+            pass
 
-            bot.reply_to(message, ai_message)
-        else:
-            bot.reply_to(message, f"API Hata Kodu: {response.status_code}. Lütfen API Key kontrol et.")
-    except Exception as e:
-        bot.reply_to(message, "Bağlantı zaman aşımına uğradı, tekrar dene.")
+    bot.reply_to(message, "⚠️ İki API sunucusu da yanıt vermedi. Render > Environment kısmından GROQ_API_KEY değerini kontrol et.")
 
 if __name__ == "__main__":
     threading.Thread(target=run_flask).start()
