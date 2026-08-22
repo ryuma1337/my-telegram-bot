@@ -154,4 +154,12 @@ if __name__ == "__main__":
         set_bot_commands()
     except:
         pass
-    bot.polling(non_stop=True)
+        
+    # Çakışmayı önlemek için eski bağlantıları ve webhookları temizle
+    try:
+        bot.remove_webhook()
+    except Exception:
+        pass
+        
+    # Telegram Botunu Çalıştır (skip_pending=True ile eski takılı komutları yoksay)
+    bot.polling(non_stop=True, skip_pending=True)
