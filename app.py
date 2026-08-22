@@ -125,8 +125,9 @@ def chat_ai(message):
         "Content-Type": "application/json"
     }
     
+    # Kesin çalışan Groq modeli
     data = {
-        "model": "llama-3.3-70b-versatile",
+        "model": "llama-3.1-8b-instant",
         "messages": messages,
         "temperature": 0.85
     }
@@ -144,9 +145,9 @@ def chat_ai(message):
 
             bot.reply_to(message, ai_message)
         else:
-            bot.reply_to(message, "API yanıt vermedi, lütfen tekrar dene.")
-    except Exception:
-        bot.reply_to(message, "Bağlantı zaman aşımına uğradı, tekrar deneyebilirsin.")
+            bot.reply_to(message, f"API Hata Kodu: {response.status_code}. Lütfen API Key kontrol et.")
+    except Exception as e:
+        bot.reply_to(message, "Bağlantı zaman aşımına uğradı, tekrar dene.")
 
 if __name__ == "__main__":
     threading.Thread(target=run_flask).start()
@@ -155,11 +156,9 @@ if __name__ == "__main__":
     except:
         pass
         
-    # Çakışmayı önlemek için eski bağlantıları ve webhookları temizle
     try:
         bot.remove_webhook()
     except Exception:
         pass
         
-    # Telegram Botunu Çalıştır (skip_pending=True ile eski takılı komutları yoksay)
     bot.polling(non_stop=True, skip_pending=True)
