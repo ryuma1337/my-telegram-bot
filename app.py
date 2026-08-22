@@ -42,7 +42,6 @@ user_chat_history = {}
 user_voice_mode = {}
 MAX_HISTORY_LEN = 15
 
-# Klavyenin altındaki sabit hızlı buton menüsü
 def get_main_keyboard():
     markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
     btn_restart = types.KeyboardButton("🔄 Yeniden Başlat")
@@ -53,7 +52,6 @@ def get_main_keyboard():
     markup.add(btn_scenario, btn_voice)
     return markup
 
-# Hata Durumunda Bildirim Gönderme
 def send_error_notification(chat_id, error_msg):
     markup = types.InlineKeyboardMarkup()
     restart_btn = types.InlineKeyboardButton("🔄 Tek Tıkla Yeniden Başlat", callback_data="btn_restart")
@@ -78,12 +76,11 @@ def send_welcome(message):
     chat_id = message.chat.id
     user_chat_history[chat_id] = []
     text = (
-        "👑 **+18 Gelişmiş AI Bot Yeniden Başlatıldı!**\n\n"
+        "👑 **+18 Gelişmiş AI Bot Aktif!**\n\n"
         "Aşağıdaki menü butonlarını kullanarak bota hızlıca komut verebilirsin."
     )
     bot.send_message(chat_id, text, reply_markup=get_main_keyboard(), parse_mode="Markdown")
 
-# Alt Menü Buton Yakalayıcıları
 @bot.message_handler(func=lambda m: m.text == "🔄 Yeniden Başlat")
 def menu_restart(message):
     send_welcome(message)
@@ -137,7 +134,6 @@ def clear_history(message):
     user_chat_history[chat_id] = []
     bot.reply_to(message, "🧠 **Sohbet hafızası sıfırlandı!**", parse_mode="Markdown")
 
-# --- /PHOTO KOMUTU ---
 @bot.message_handler(commands=['photo'])
 def send_scene_photo(message):
     chat_id = message.chat.id
@@ -173,67 +169,6 @@ def send_scene_photo(message):
     except Exception as e:
         send_error_notification(chat_id, e)
 
-@bot.message_handler(commands=['ciz'])
-def draw_image(message):
-    prompt = message.text.replace("/ciz", "").strip()
-    if not prompt:
-        bot.reply_to(message, "Örnek kullanım: `/ciz 1girl, anime, nsfw`", parse_mode="Markdown")
-        return
-
-    bot.send_chat_action(message.chat.id, 'upload_photo')
-    enhanced_prompt = f"{prompt}, masterpiece, top quality, anime style, uncensored"
-    seed = random.randint(1000, 999999)
-    image_url = f"https://image.pollinations.ai/prompt/{enhanced_prompt.replace(' ', '%20')}?model=flux&seed={seed}&nologo=true&private=true&safe=false"
-    
-    try:
-        bot.send_photo(message.chat.id, image_url)
-    except Exception as e:
-        send_error_notification(message.chat.id, e)
-
-@bot.message_handler(content_types=['voice'])
-def handle_voice_message(message):
-    chat_id = message.chat.id
-    if not GEMINI_API_KEY:
-        send_error_notification(chat_id, "GEMINI_API_KEY bulunamadı!")
-        return
-
-    bot.send_chat_action(chat_id, 'record_voice')
-
-    try:
-        file_info = bot.get_file(message.voice.file_id)
-        downloaded_file = bot.download_file(file_info.file_path)
-
-        client = genai.Client(api_key=GEMINI_API_KEY.strip())
-        voice_part = genai_types.Part.from_bytes(data=downloaded_file, mime_type="audio/ogg")
-        
-        selected_sc = user_scenarios.get(chat_id, "nsfw_genel")
-        system_prompt = SCENARIOS[selected_sc] + BASE_INSTRUCTION
-        
-        config = genai_types.GenerateContentConfig(
-            system_instruction=system_prompt,
-            safety_settings=[
-                genai_types.SafetySetting(category=genai_types.HarmCategory.HARM_CATEGORY_HARASSMENT, threshold=genai_types.HarmBlockThreshold.BLOCK_NONE),
-                genai_types.SafetySetting(category=genai_types.HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold=genai_types.HarmBlockThreshold.BLOCK_NONE),
-                genai_types.SafetySetting(category=genai_types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold=genai_types.HarmBlockThreshold.BLOCK_NONE),
-                genai_types.SafetySetting(category=genai_types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold=genai_types.HarmBlockThreshold.BLOCK_NONE),
-            ]
-        )
-
-        response = client.models.generate_content(
-            model=MODEL_NAME,
-            contents=[voice_part, "Bu ses kaydını anla ve karakterine uygun Türkçe yanıt ver."],
-            config=config
-        )
-
-        if response and response.text:
-            process_and_reply(message, response.text)
-        else:
-            send_error_notification(chat_id, "Ses anlaşılamadı.")
-
-    except Exception as e:
-        send_error_notification(chat_id, e)
-
-# NORMAL METİN SOHBETİ
 @bot.message_handler(func=lambda message: True)
 def chat_ai(message):
     if message.text.startswith('/'):
@@ -306,18 +241,14 @@ def process_and_reply(message, text_response):
         except Exception:
             pass
 
-def start_polling():
+if __name__ == "__main__":
+    # Webhook temizleme
     try:
         bot.remove_webhook()
+        time.sleep(1)
     except Exception:
         pass
-    
-    while True:
-        try:
-            bot.polling(none_stop=True, interval=0, timeout=20)
-        except Exception as e:
-            time.sleep(2)
-
-if __name__ == "__main__":
+        
     threading.Thread(target=run_flask).start()
-    start_polling()
+    print("Bot dinlemeye başladı...")
+    bot.infinity_polling(timeout=10, long_polling_timeout=5)
