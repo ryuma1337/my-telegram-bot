@@ -53,7 +53,9 @@ def draw_image(message):
         bot.reply_to(message, "Örnek kullanım: `/ciz 1girl, anime, nsfw`", parse_mode="Markdown")
         return
 
-    bot.reply_to(message, "🔥 Görsel üretiliyor...")
+    # Görsel hazırlanırken 'fotoğraf gönderiyor...' aksiyonu göster
+    bot.send_chat_action(message.chat.id, 'upload_photo')
+    
     enhanced_prompt = f"{prompt}, masterpiece, top quality, anime style, uncensored"
     seed = random.randint(1000, 999999)
     image_url = f"https://image.pollinations.ai/prompt/{enhanced_prompt.replace(' ', '%20')}?model=flux&seed={seed}&nologo=true&private=true&safe=false"
@@ -71,8 +73,11 @@ def chat_ai(message):
     system_prompt = PROMPTS[current_mode]
 
     if not GEMINI_API_KEY:
-        bot.reply_to(message, "⚠️ GEMINI_API_KEY bulunamadı! Render Environment sekmesinden ekleyin.")
+        bot.reply_to(message, "⚠️ GEMINI_API_KEY bulunamadı!")
         return
+
+    # Telegram'da kullanıcıya "yazıyor..." aksiyonunu göster
+    bot.send_chat_action(chat_id, 'typing')
 
     try:
         client = genai.Client(api_key=GEMINI_API_KEY.strip())
@@ -99,32 +104,20 @@ def chat_ai(message):
             ]
         )
 
-        # Otomatik Model Taraması
-        available_models = []
-        for m in client.models.list():
-            if "generateContent" in getattr(m, "supported_actions", []):
-                available_models.append(m.name)
+        # En hızlı çalışan varsayılan model
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=user_input,
+            config=config
+        )
 
-        if not available_models:
-            available_models = ["gemini-2.5-flash", "gemini-1.5-flash"]
-
-        for model_name in available_models:
-            try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=user_input,
-                    config=config
-                )
-                if response and response.text:
-                    bot.reply_to(message, response.text)
-                    return
-            except Exception:
-                continue
-
-        bot.reply_to(message, "⚠️ Yanıt oluşturulamadı.")
+        if response and response.text:
+            bot.reply_to(message, response.text)
+        else:
+            bot.reply_to(message, "⚠️ Yanıt oluşturulamadı.")
 
     except Exception as e:
-        bot.reply_to(message, f"⚠️ Bağlantı Hatası: {str(e)}")
+        bot.reply_to(message, f"⚠️ Hata: {str(e)}")
 
 def start_polling():
     try:
@@ -134,9 +127,9 @@ def start_polling():
     
     while True:
         try:
-            bot.polling(none_stop=True, interval=1, timeout=20)
+            bot.polling(none_stop=True, interval=0, timeout=20)
         except Exception:
-            time.sleep(3)
+            time.sleep(1)
 
 if __name__ == "__main__":
     threading.Thread(target=run_flask).start()
