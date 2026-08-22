@@ -3,28 +3,22 @@ import random
 import threading
 import time
 from io import BytesIO
+import requests
 from flask import Flask
 from telebot import TeleBot, types
 from google import genai
 from google.genai import types as genai_types
-from groq import Groq
 from gtts import gTTS
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GEMINI_API_KEY_2 = os.getenv("GEMINI_API_KEY_2")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 bot = TeleBot(TELEGRAM_BOT_TOKEN)
 app = Flask(__name__)
 
-GEMINI_MODEL_NAME = "gemini-3.6-flash"
-
-# Sadece %100 Aktif ve Güncel Groq Modelleri
-GROQ_MODELS = [
-    "llama-3.3-70b-versatile",
-    "llama-3.1-8b-instant",
-    "mixtral-8x7b-32768"
-]
+GEMINI_MODEL_NAME = "gemini-2.5-flash"
 
 @app.route('/')
 def home():
@@ -67,58 +61,74 @@ def send_error_notification(chat_id, error_msg):
     markup.add(types.InlineKeyboardButton("🔄 YENİDEN BAŞLAT", callback_data="btn_restart"))
     bot.send_message(chat_id, f"⚠️ **SİSTEM HATASI!**\n`{str(error_msg)[:150]}`", parse_mode="Markdown", reply_markup=markup)
 
+def call_gemini(api_key, history, full_prompt):
+    client = genai.Client(api_key=api_key.strip())
+    config = genai_types.GenerateContentConfig(
+        system_instruction=full_prompt,
+        safety_settings=[
+            genai_types.SafetySetting(category=genai_types.HarmCategory.HARM_CATEGORY_HARASSMENT, threshold=genai_types.HarmBlockThreshold.BLOCK_NONE),
+            genai_types.SafetySetting(category=genai_types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold=genai_types.HarmBlockThreshold.BLOCK_NONE)
+        ]
+    )
+    response = client.models.generate_content(
+        model=GEMINI_MODEL_NAME, 
+        contents=history, 
+        config=config
+    )
+    if response and response.text:
+        return response.text
+    raise Exception("Gemini boş yanıt döndü.")
+
+def call_openrouter(history, full_prompt):
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY.strip()}",
+        "Content-Type": "application/json"
+    }
+    
+    messages = [{"role": "system", "content": full_prompt}]
+    for content in history:
+        role = "assistant" if content.role == "model" else "user"
+        text = content.parts[0].text if content.parts else ""
+        messages.append({"role": role, "content": text})
+
+    payload = {
+        "model": "meta-llama/llama-3.2-11b-vision-instruct:free",
+        "messages": messages
+    }
+    
+    res = requests.post(url, json=payload, headers=headers, timeout=15)
+    if res.status_code == 200:
+        data = res.json()
+        return data['choices'][0]['message']['content']
+    else:
+        raise Exception(f"OpenRouter hatası: {res.status_code} - {res.text}")
+
 def get_ai_response(chat_id, history, system_prompt):
     full_prompt = system_prompt + BASE_INSTRUCTION
     
-    # 1. DENEME: GEMINI API
+    # 1. HAT: ANA GEMINI API
     if GEMINI_API_KEY:
         try:
-            client = genai.Client(api_key=GEMINI_API_KEY.strip())
-            config = genai_types.GenerateContentConfig(
-                system_instruction=full_prompt,
-                safety_settings=[
-                    genai_types.SafetySetting(category=genai_types.HarmCategory.HARM_CATEGORY_HARASSMENT, threshold=genai_types.HarmBlockThreshold.BLOCK_NONE),
-                    genai_types.SafetySetting(category=genai_types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold=genai_types.HarmBlockThreshold.BLOCK_NONE)
-                ]
-            )
-            response = client.models.generate_content(
-                model=GEMINI_MODEL_NAME, 
-                contents=history, 
-                config=config
-            )
-            if response and response.text:
-                return response.text
+            return call_gemini(GEMINI_API_KEY, history, full_prompt)
         except Exception as e:
-            print(f"Gemini Hatası ({e}), Groq sistemine geçiliyor...")
+            print(f"Ana Gemini patladı ({e}), 2. hatta geçiliyor...")
 
-    # 2. DENEME: GROQ API (Otomatik Yedek Modeller)
-    if GROQ_API_KEY:
-        groq_client = Groq(api_key=GROQ_API_KEY.strip())
-        groq_messages = [{"role": "system", "content": full_prompt}]
-        
-        for content in history:
-            role = "assistant" if content.role == "model" else "user"
-            text = content.parts[0].text if content.parts else ""
-            groq_messages.append({"role": role, "content": text})
+    # 2. HAT: YEDEK GEMINI API
+    if GEMINI_API_KEY_2:
+        try:
+            return call_gemini(GEMINI_API_KEY_2, history, full_prompt)
+        except Exception as e:
+            print(f"Yedek Gemini de patladı ({e}), OpenRouter'a geçiliyor...")
 
-        last_error = None
-        for model_name in GROQ_MODELS:
-            try:
-                completion = groq_client.chat.completions.create(
-                    model=model_name,
-                    messages=groq_messages,
-                    temperature=0.8,
-                    max_tokens=1000
-                )
-                return completion.choices[0].message.content
-            except Exception as groq_err:
-                last_error = groq_err
-                print(f"Groq model hatası ({model_name}): {groq_err}. Sonraki deneniyor...")
-                continue
-                
-        raise Exception(f"Tüm Groq modelleri başarısız: {last_error}")
+    # 3. HAT: OPENROUTER (ÜCRETSİZ / SINIRSIZ LLAMA MODELİ)
+    if OPENROUTER_API_KEY:
+        try:
+            return call_openrouter(history, full_prompt)
+        except Exception as e:
+            print(f"OpenRouter da patladı ({e}).")
 
-    raise Exception("API anahtarları eksik veya yetersiz!")
+    raise Exception("Tüm servisler (Gemini-1, Gemini-2, OpenRouter) tükendi veya yapılandırılmadı!")
 
 @bot.callback_query_handler(func=lambda call: call.data == "btn_restart")
 def restart_callback(call):
