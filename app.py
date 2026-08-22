@@ -12,51 +12,35 @@ approved_users = set()
 
 @bot.message_handler(commands=['start'])
 def start_command(message):
-    user_id = message.from_user.id
-    bot.reply_to(message, "Buyurun Efendim Naber")
-
-    if user_id not in approved_users:
-        markup = telebot.types.InlineKeyboardMarkup()
-        btn = telebot.types.InlineKeyboardButton("🔞 18 Yaşından Büyüğüm (Onayla)", callback_data="age_verify_yes")
-        markup.add(btn)
-        bot.send_message(message.chat.id, "🔥 Yapay Zekâ Botu. Devam etmek için onaylayın:", reply_markup=markup)
-
-@bot.callback_query_handler(func=lambda call: call.data == "age_verify_yes")
-def callback_query(call):
-    approved_users.add(call.from_user.id)
-    bot.answer_callback_query(call.id, "Onaylandı!")
-    bot.edit_message_text("✅ Yaşınız doğrulandı! Mesaj yazabilir veya /ciz [örnek: kırmızı araba] diyerek görsel ürettirebilirsiniz.", call.message.chat.id, call.message.message_id)
+    approved_users.add(message.from_user.id)
+    bot.reply_to(message, "🔥 +18 Resim ve Yazı Botu Aktif!\n\nSohbet etmek için direkt yazabilir, resim çizdirmek için `/ciz [istek]` komutunu kullanabilirsin.")
 
 @bot.message_handler(commands=['ciz'])
 def generate_image(message):
     user_id = message.from_user.id
-    if user_id not in approved_users:
-        bot.reply_to(message, "Lütfen önce /start yazıp onay verin.")
-        return
 
     prompt = message.text.replace('/ciz', '').strip()
     if not prompt:
-        bot.reply_to(message, "Lütfen ne çizmem gerektiğini belirtin. Örnek: `/ciz siberpunk şehir`")
+        bot.reply_to(message, "Lütfen çizilecek sahneyi yazın. Örnek: `/ciz 1girl, ecchi, masterpice, anime style`")
         return
 
     bot.send_chat_action(message.chat.id, 'upload_photo')
     
     try:
-        encoded_prompt = urllib.parse.quote(prompt)
-        image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true"
-        bot.send_photo(message.chat.id, image_url, caption=f"🎨 **İstek:** {prompt}", parse_mode="Markdown")
+        # Anime ve ecchi odaklı pozitif kalıplar ekleniyor
+        enhanced_prompt = f"{prompt}, masterpiece, highly detailed, anime style, ecchi"
+        encoded_prompt = urllib.parse.quote(enhanced_prompt)
+        
+        # Pollinations Anime Modeli ve Filtresiz Parametreler
+        image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=832&height=1216&model=anime&nologo=true&private=true"
+        
+        bot.send_photo(message.chat.id, image_url, caption=f"🎨 **Çizim:** {prompt}", parse_mode="Markdown")
     except Exception as e:
-        bot.reply_to(message, "Görsel oluşturulurken bir hata meydana geldi.")
+        bot.reply_to(message, "Görsel oluşturulurken bir sunucu hatası oluştu.")
 
 @bot.message_handler(func=lambda message: True)
 def handle_all_messages(message):
-    user_id = message.from_user.id
-    if user_id not in approved_users:
-        bot.reply_to(message, "Lütfen önce /start yazıp yaşınızı onaylayın.")
-        return
-
     bot.send_chat_action(message.chat.id, 'typing')
-
     try:
         response = requests.post(
             url="https://openrouter.ai/api/v1/chat/completions",
@@ -74,14 +58,8 @@ def handle_all_messages(message):
             bot_reply = response.json()['choices'][0]['message']['content']
             bot.reply_to(message, bot_reply)
         else:
-            bot.reply_to(message, "Yapay zeka sunucusu şu an yanıt veremiyor.")
+            bot.reply_to(message, "Yapay zeka yanıt veremedi.")
     except Exception as e:
         bot.reply_to(message, "Bağlantı hatası oluştu.")
-
-if MY_CHAT_ID:
-    try:
-        bot.send_message(MY_CHAT_ID, "🚀 Bot güncellemesi (Görsel Üretimi Ekli) aktif edildi!")
-    except Exception as e:
-        pass
 
 bot.infinity_polling(timeout=20, long_polling_timeout=10)
