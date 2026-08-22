@@ -1,14 +1,14 @@
 import os
+import json
 import random
 import threading
-import requests
+import subprocess
 import time
 from flask import Flask
 from telebot import TeleBot, types
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 bot = TeleBot(TELEGRAM_BOT_TOKEN)
 app = Flask(__name__)
@@ -76,12 +76,59 @@ def draw_image(message):
     bot.reply_to(message, "🔥 Görsel üretiliyor...")
     enhanced_prompt = f"{prompt}, masterpiece, top quality, anime style, uncensored"
     seed = random.randint(1000, 999999)
-    image_url = f"https://image.pollinations.ai/prompt/{requests.utils.quote(enhanced_prompt)}?model=flux&seed={seed}&nologo=true&private=true&safe=false"
+    image_url = f"https://image.pollinations.ai/prompt/{enhanced_prompt.replace(' ', '%20')}?model=flux&seed={seed}&nologo=true&private=true&safe=false"
     
     try:
         bot.send_photo(message.chat.id, image_url, caption=f"🔞 `{prompt}`", parse_mode="Markdown")
     except Exception:
         bot.reply_to(message, "Görsel motoru yanıt vermedi.")
+
+def query_groq_curl(messages):
+    if not GROQ_API_KEY:
+        return None
+    
+    payload = json.dumps({
+        "model": "llama-3.1-8b-instant",
+        "messages": messages,
+        "temperature": 0.85
+    })
+    
+    cmd = [
+        "curl", "-s", "-X", "POST", "https://api.groq.com/openai/v1/chat/completions",
+        "-H", f"Authorization: Bearer {GROQ_API_KEY.strip()}",
+        "-H", "Content-Type: application/json",
+        "-d", payload
+    ]
+    
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=12)
+        if result.returncode == 0:
+            data = json.loads(result.stdout)
+            return data["choices"][0]["message"]["content"]
+    except Exception:
+        pass
+    return None
+
+def query_pollinations_curl(messages):
+    payload = json.dumps({
+        "messages": messages,
+        "model": "openai",
+        "seed": random.randint(1, 9999)
+    })
+    
+    cmd = [
+        "curl", "-s", "-X", "POST", "https://text.pollinations.ai/",
+        "-H", "Content-Type: application/json",
+        "-d", payload
+    ]
+    
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=12)
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return None
 
 @bot.message_handler(func=lambda message: True)
 def chat_ai(message):
@@ -95,56 +142,18 @@ def chat_ai(message):
     system_prompt = {"role": "system", "content": PROMPTS[current_mode]}
     messages = [system_prompt] + user_histories[chat_id] + [{"role": "user", "content": user_input}]
 
-    # 1. MOTOR: Pollinations AI (API Key GEREKTİRMEZ - %100 Garantili)
-    try:
-        res = requests.post(
-            "https://text.pollinations.ai/",
-            json={"messages": messages, "model": "openai-large", "seed": random.randint(1, 9999)},
-            timeout=12
-        )
-        if res.status_code == 200 and res.text.strip():
-            ai_msg = res.text.strip()
-            user_histories[chat_id].extend([{"role": "user", "content": user_input}, {"role": "assistant", "content": ai_msg}])
-            bot.reply_to(message, ai_msg)
-            return
-    except Exception as e:
-        print(f"POLLINATIONS HATASI: {e}")
+    # 1. Deneme: Groq via cURL
+    ai_msg = query_groq_curl(messages)
+    
+    # 2. Deneme: Pollinations via cURL
+    if not ai_msg:
+        ai_msg = query_pollinations_curl(messages)
 
-    # 2. MOTOR: GROQ API (Yedek)
-    if GROQ_API_KEY:
-        try:
-            res = requests.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                json={"model": "llama-3.1-8b-instant", "messages": messages, "temperature": 0.85},
-                headers={"Authorization": f"Bearer {GROQ_API_KEY.strip()}"},
-                timeout=10
-            )
-            if res.status_code == 200:
-                ai_msg = res.json()["choices"][0]["message"]["content"]
-                user_histories[chat_id].extend([{"role": "user", "content": user_input}, {"role": "assistant", "content": ai_msg}])
-                bot.reply_to(message, ai_msg)
-                return
-        except Exception:
-            pass
-
-    # 3. MOTOR: OPENROUTER API (Yedek)
-    if OPENROUTER_API_KEY:
-        try:
-            res = requests.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                json={"model": "meta-llama/llama-3.3-70b-instruct:free", "messages": messages},
-                headers={"Authorization": f"Bearer {OPENROUTER_API_KEY.strip()}"},
-                timeout=10
-            )
-            if res.status_code == 200:
-                ai_msg = res.json()["choices"][0]["message"]["content"]
-                user_histories[chat_id].extend([{"role": "user", "content": user_input}, {"role": "assistant", "content": ai_msg}])
-                bot.reply_to(message, ai_msg)
-                return
-        except Exception:
-            pass
-
-    bot.reply_to(message, "⚠️ Bağlantı kurulamadı. Lütfen birkaç saniye sonra tekrar yazın.")
+    if ai_msg:
+        user_histories[chat_id].extend([{"role": "user", "content": user_input}, {"role": "assistant", "content": ai_msg}])
+        bot.reply_to(message, ai_msg)
+    else:
+        bot.reply_to(message, "⚠️ Bağlantı sağlanamadı. Lütfen tekrar yazın.")
 
 def start_polling():
     try:
@@ -155,7 +164,7 @@ def start_polling():
     while True:
         try:
             bot.polling(none_stop=True, interval=1, timeout=20)
-        except Exception as e:
+        except Exception:
             time.sleep(3)
 
 if __name__ == "__main__":
