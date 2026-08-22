@@ -15,7 +15,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 bot = TeleBot(TELEGRAM_BOT_TOKEN)
 app = Flask(__name__)
 
-# En stabil ve yüksek kotalı resmi model
+# En stabil güncel Flash model ismi
 MODEL_NAME = "gemini-2.5-flash"
 
 @app.route('/')
@@ -94,7 +94,7 @@ def clear_history(message):
     user_chat_history[chat_id] = []
     bot.reply_to(message, "🧠 **Sohbet hafızası sıfırlandı!**", parse_mode="Markdown")
 
-# --- KESİNTİSİZ VE ANINDA /PHOTO KOMUTU ---
+# --- YAZI YAZMAYAN, SADECE FOTOĞRAF GÖNDEREN /PHOTO ---
 @bot.message_handler(commands=['photo'])
 def send_scene_photo(message):
     chat_id = message.chat.id
@@ -102,8 +102,7 @@ def send_scene_photo(message):
         bot.reply_to(message, "⚠️ GEMINI_API_KEY bulunamadı!")
         return
 
-    # Geçici bildirim mesajı
-    status_msg = bot.send_message(chat_id, "📸 Fotoğraf gönderiliyor...")
+    # Sadece üst barda "fotoğraf yükleniyor" ibaresi çıkar
     bot.send_chat_action(chat_id, 'upload_photo')
 
     history = user_chat_history.get(chat_id, [])
@@ -130,12 +129,10 @@ def send_scene_photo(message):
         seed = random.randint(1000, 999999)
         image_url = f"https://image.pollinations.ai/prompt/{enhanced_prompt.replace(' ', '%20')}?model=flux&seed={seed}&nologo=true&private=true&safe=false"
         
-        # Geçici yazıyı sil ve SADECE fotoğrafı gönder
-        bot.delete_message(chat_id, status_msg.message_id)
+        # Sadece fotoğraf gönderilir
         bot.send_photo(chat_id, image_url)
 
     except Exception as e:
-        bot.delete_message(chat_id, status_msg.message_id)
         bot.reply_to(message, f"⚠️ Fotoğraf hatası: {str(e)}")
 
 @bot.message_handler(commands=['ciz'])
@@ -201,7 +198,7 @@ def handle_voice_message(message):
 # NORMAL METİN SOHBETİ
 @bot.message_handler(func=lambda message: True)
 def chat_ai(message):
-    # Komutların buraya düşmesini engelle
+    # Komutların metin gibi işlenmesini engeller
     if message.text.startswith('/'):
         return
 
