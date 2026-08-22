@@ -1,4 +1,5 @@
 pyTelegramBotAPI
-google-genai
-gTTS
 Flask
+google-genai
+groq
+gTTS
