@@ -2,9 +2,10 @@ import os
 import random
 import threading
 import time
-import requests
 from flask import Flask
 from telebot import TeleBot, types
+from google import genai
+from google.genai import types as genai_types
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -32,7 +33,7 @@ user_modes = {}
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    text = "👑 **+18 Bot Aktif!**\n\n`/mod nsfw` yazarak filtresiz moda geçebilirsin."
+    text = "👑 **+18 Bot Aktif!**\n\n`/mod nsfw` yazarak filtresiz moda geçebilirsin.\n`/ciz <metin>` ile görsel üretebilirsin."
     bot.reply_to(message, text, parse_mode="Markdown")
 
 @bot.message_handler(commands=['mod'])
@@ -45,6 +46,23 @@ def change_mode(message):
     else:
         bot.reply_to(message, "Geçersiz mod! Kullanım: `/mod nsfw` veya `/mod normal`", parse_mode="Markdown")
 
+@bot.message_handler(commands=['ciz'])
+def draw_image(message):
+    prompt = message.text.replace("/ciz", "").strip()
+    if not prompt:
+        bot.reply_to(message, "Örnek kullanım: `/ciz 1girl, anime, nsfw`", parse_mode="Markdown")
+        return
+
+    bot.reply_to(message, "🔥 Görsel üretiliyor...")
+    enhanced_prompt = f"{prompt}, masterpiece, top quality, anime style, uncensored"
+    seed = random.randint(1000, 999999)
+    image_url = f"https://image.pollinations.ai/prompt/{enhanced_prompt.replace(' ', '%20')}?model=flux&seed={seed}&nologo=true&private=true&safe=false"
+    
+    try:
+        bot.send_photo(message.chat.id, image_url, caption=f"🔞 `{prompt}`", parse_mode="Markdown")
+    except Exception:
+        bot.reply_to(message, "Görsel üretilemedi, lütfen tekrar deneyin.")
+
 @bot.message_handler(func=lambda message: True)
 def chat_ai(message):
     chat_id = message.chat.id
@@ -56,48 +74,63 @@ def chat_ai(message):
         bot.reply_to(message, "⚠️ GEMINI_API_KEY bulunamadı! Render Environment sekmesinden ekleyin.")
         return
 
-    # Sırasıyla denenecek modeller (503 yoğunluk hatasını aşmak için)
-    models_to_try = ["gemini-1.5-flash", "gemini-1.5-flash-8b"]
-    
-    payload = {
-        "contents": [
-            {
-                "parts": [
-                    {"text": f"{system_prompt}\n\nKullanıcı: {user_input}"}
-                ]
-            }
-        ],
-        "safetySettings": [
-            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
-        ]
-    }
+    try:
+        # Google Resmi SDK Bağlantısı
+        client = genai.Client(api_key=GEMINI_API_KEY.strip())
+        
+        # Filtreleri tamamen devre dışı bırakma konfigürasyonu
+        config = genai_types.GenerateContentConfig(
+            system_instruction=system_prompt,
+            safety_settings=[
+                genai_types.SafetySetting(
+                    category=genai_types.HarmCategory.HARM_CATEGORY_HARASSMENT,
+                    threshold=genai_types.HarmBlockThreshold.BLOCK_NONE,
+                ),
+                genai_types.SafetySetting(
+                    category=genai_types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+                    threshold=genai_types.HarmBlockThreshold.BLOCK_NONE,
+                ),
+                genai_types.SafetySetting(
+                    category=genai_types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                    threshold=genai_types.HarmBlockThreshold.BLOCK_NONE,
+                ),
+                genai_types.SafetySetting(
+                    category=genai_types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                    threshold=genai_types.HarmBlockThreshold.BLOCK_NONE,
+                ),
+            ]
+        )
 
-    for model_name in models_to_try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY.strip()}"
-        try:
-            res = requests.post(url, json=payload, timeout=25)
-            if res.status_code == 200:
-                data = res.json()
-                try:
-                    ai_msg = data['candidates'][0]['content']['parts'][0]['text']
-                    bot.reply_to(message, ai_msg)
+        # Hesabındaki aktif çalışan modelleri otomatik sorgula
+        available_models = []
+        for m in client.models.list():
+            if "generateContent" in getattr(m, "supported_actions", []):
+                available_models.append(m.name)
+
+        if not available_models:
+            # Fallback varsayılan liste
+            available_models = ["gemini-1.5-flash", "gemini-2.0-flash-exp", "gemini-1.5-pro"]
+
+        # Bulunan ilk aktif modelle içeriği üret
+        response = None
+        for model_name in available_models:
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=user_input,
+                    config=config
+                )
+                if response and response.text:
+                    bot.reply_to(message, response.text)
                     return
-                except (KeyError, IndexError):
-                    bot.reply_to(message, "⚠️ Yanıt oluşturulamadı (İçerik filtresine takılmış olabilir).")
-                    return
-            elif res.status_code == 503:
-                print(f"{model_name} yoğun (503), yedek modele geçiliyor...")
+            except Exception as model_err:
+                print(f"{model_name} denenirken hata: {model_err}")
                 continue
-            else:
-                bot.reply_to(message, f"⚠️ API Hatası: KOD {res.status_code} - {res.text}")
-                return
-        except Exception:
-            continue
 
-    bot.reply_to(message, "⚠️ Google sunucuları aşırı yoğun. Lütfen birkaç saniye sonra tekrar yazın.")
+        bot.reply_to(message, "⚠️ Yanıt oluşturulamadı (İçerik filtresine takılmış olabilir).")
+
+    except Exception as e:
+        bot.reply_to(message, f"⚠️ Bağlantı Hatası: {str(e)}")
 
 def start_polling():
     try:
