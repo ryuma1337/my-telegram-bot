@@ -15,6 +15,9 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 bot = TeleBot(TELEGRAM_BOT_TOKEN)
 app = Flask(__name__)
 
+# Google API için resmi ve stabil Flash model ismi
+MODEL_NAME = "gemini-2.5-flash"
+
 @app.route('/')
 def home():
     return "Bot Online", 200
@@ -99,8 +102,7 @@ def send_scene_photo(message):
         bot.reply_to(message, "⚠️ GEMINI_API_KEY bulunamadı!")
         return
 
-    # Önce kullanıcıya fotoğrafın çekilip hazırlandığı bilgisini ver
-    status_msg = bot.reply_to(message, "📸 *Fotoğraf gönderiliyor, lütfen bekle...*", parse_mode="Markdown")
+    # Telegram üst çubuğunda doğrudan "Fotoğraf gönderiliyor..." efekti göster
     bot.send_chat_action(chat_id, 'upload_photo')
 
     history = user_chat_history.get(chat_id, [])
@@ -108,11 +110,9 @@ def send_scene_photo(message):
     try:
         client = genai.Client(api_key=GEMINI_API_KEY.strip())
         
-        # Eğer hafıza boşsa genel bir nsfw anime görseli oluştur
         if not history:
             prompt_text = "1girl, solo, anime, bedroom, seductive look, high quality, uncensored, nsfw"
         else:
-            # Hafızadaki son durumdan görsel prompt'u çıkarma
             prompt_request = (
                 "Son mesajlara ve duruma bak. Karakterin şu anki görünüşü, pozu ve bulunduğu ortamı temsil eden "
                 "İngilizce bir resim prompt'u yaz. YALNIZCA virgüllerle ayrılmış kelimeler yaz, hikaye anlatma. "
@@ -122,7 +122,7 @@ def send_scene_photo(message):
             contents = history + [genai_types.Content(role="user", parts=[genai_types.Part.from_text(text=prompt_request)])]
             
             response = client.models.generate_content(
-                model="gemini-3.6-flash",
+                model=MODEL_NAME,
                 contents=contents
             )
             prompt_text = response.text.replace("\n", " ").strip() if response and response.text else "1girl, solo, anime, nsfw"
@@ -131,12 +131,10 @@ def send_scene_photo(message):
         seed = random.randint(1000, 999999)
         image_url = f"https://image.pollinations.ai/prompt/{enhanced_prompt.replace(' ', '%20')}?model=flux&seed={seed}&nologo=true&private=true&safe=false"
         
-        # Bekletme mesajını sil ve gerçek fotoğrafı gönder
-        bot.delete_message(chat_id, status_msg.message_id)
-        bot.send_photo(chat_id, image_url, caption="📸 *Anlık çekilen fotoğrafım...*", parse_mode="Markdown")
+        # Ekstra metin mesajı yazmadan doğrudan fotoğrafı at
+        bot.send_photo(chat_id, image_url, caption="📸 *Şu anki halim...*", parse_mode="Markdown")
 
     except Exception as e:
-        bot.delete_message(chat_id, status_msg.message_id)
         bot.reply_to(message, f"⚠️ Fotoğraf çekilemedi: {str(e)}")
 
 @bot.message_handler(commands=['ciz'])
@@ -190,7 +188,7 @@ def handle_voice_message(message):
         )
 
         response = client.models.generate_content(
-            model="gemini-3.6-flash",
+            model=MODEL_NAME,
             contents=[voice_part, "Bu ses kaydını anla ve karakterine uygun Türkçe yanıt ver."],
             config=config
         )
@@ -203,7 +201,7 @@ def handle_voice_message(message):
     except Exception as e:
         bot.reply_to(message, f"⚠️ Ses İşleme Hatası: {str(e)}")
 
-# Metin Mesajları Dinleyicisi (Sadece komut olmayan mesajları yakalar)
+# Metin Mesajları Dinleyicisi
 @bot.message_handler(func=lambda message: True)
 def chat_ai(message):
     chat_id = message.chat.id
@@ -237,7 +235,7 @@ def chat_ai(message):
         )
 
         response = client.models.generate_content(
-            model="gemini-3.6-flash",
+            model=MODEL_NAME,
             contents=history,
             config=config
         )
