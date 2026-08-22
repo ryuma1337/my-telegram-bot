@@ -56,7 +56,8 @@ def chat_ai(message):
         bot.reply_to(message, "⚠️ GEMINI_API_KEY bulunamadı! Render Environment sekmesinden ekleyin.")
         return
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={GEMINI_API_KEY.strip()}"
+    # Doğrudan stabil Gemini 1.5 Flash Endpoint'i (En hızlı ve kesintisiz yanıt veren)
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY.strip()}"
     
     payload = {
         "contents": [
@@ -75,7 +76,8 @@ def chat_ai(message):
     }
 
     try:
-        res = requests.post(url, json=payload, timeout=15)
+        # Timeout süresi 30 saniyeye çıkarıldı
+        res = requests.post(url, json=payload, timeout=30)
         if res.status_code == 200:
             data = res.json()
             try:
