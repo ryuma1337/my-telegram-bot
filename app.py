@@ -12,13 +12,12 @@ from gtts import gTTS
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GEMINI_API_KEY_2 = os.getenv("GEMINI_API_KEY_2")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 bot = TeleBot(TELEGRAM_BOT_TOKEN)
 app = Flask(__name__)
 
-GEMINI_MODEL_NAME = "gemini-2.5-flash"
+GEMINI_MODEL_NAME = "gemini-1.5-flash"
 
 @app.route('/')
 def home():
@@ -61,24 +60,6 @@ def send_error_notification(chat_id, error_msg):
     markup.add(types.InlineKeyboardButton("🔄 YENİDEN BAŞLAT", callback_data="btn_restart"))
     bot.send_message(chat_id, f"⚠️ **SİSTEM HATASI!**\n`{str(error_msg)[:150]}`", parse_mode="Markdown", reply_markup=markup)
 
-def call_gemini(api_key, history, full_prompt):
-    client = genai.Client(api_key=api_key.strip())
-    config = genai_types.GenerateContentConfig(
-        system_instruction=full_prompt,
-        safety_settings=[
-            genai_types.SafetySetting(category=genai_types.HarmCategory.HARM_CATEGORY_HARASSMENT, threshold=genai_types.HarmBlockThreshold.BLOCK_NONE),
-            genai_types.SafetySetting(category=genai_types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold=genai_types.HarmBlockThreshold.BLOCK_NONE)
-        ]
-    )
-    response = client.models.generate_content(
-        model=GEMINI_MODEL_NAME, 
-        contents=history, 
-        config=config
-    )
-    if response and response.text:
-        return response.text
-    raise Exception("Gemini boş yanıt döndü.")
-
 def call_openrouter(history, full_prompt):
     url = "https://openrouter.ai/api/v1/chat/completions"
     headers = {
@@ -99,36 +80,37 @@ def call_openrouter(history, full_prompt):
     
     res = requests.post(url, json=payload, headers=headers, timeout=15)
     if res.status_code == 200:
-        data = res.json()
-        return data['choices'][0]['message']['content']
-    else:
-        raise Exception(f"OpenRouter hatası: {res.status_code} - {res.text}")
+        return res.json()['choices'][0]['message']['content']
+    raise Exception(f"OpenRouter Yanıt Vermedi: Status {res.status_code}")
 
 def get_ai_response(chat_id, history, system_prompt):
     full_prompt = system_prompt + BASE_INSTRUCTION
     
-    # 1. HAT: ANA GEMINI API
-    if GEMINI_API_KEY:
+    # 1. Gemini
+    if GEMINI_API_KEY and GEMINI_API_KEY.strip():
         try:
-            return call_gemini(GEMINI_API_KEY, history, full_prompt)
+            client = genai.Client(api_key=GEMINI_API_KEY.strip())
+            config = genai_types.GenerateContentConfig(
+                system_instruction=full_prompt,
+                safety_settings=[
+                    genai_types.SafetySetting(category=genai_types.HarmCategory.HARM_CATEGORY_HARASSMENT, threshold=genai_types.HarmBlockThreshold.BLOCK_NONE),
+                    genai_types.SafetySetting(category=genai_types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold=genai_types.HarmBlockThreshold.BLOCK_NONE)
+                ]
+            )
+            response = client.models.generate_content(model=GEMINI_MODEL_NAME, contents=history, config=config)
+            if response and response.text:
+                return response.text
         except Exception as e:
-            print(f"Ana Gemini patladı ({e}), 2. hatta geçiliyor...")
+            print(f"Gemini hatası: {e}. OpenRouter deneniyor...")
 
-    # 2. HAT: YEDEK GEMINI API
-    if GEMINI_API_KEY_2:
-        try:
-            return call_gemini(GEMINI_API_KEY_2, history, full_prompt)
-        except Exception as e:
-            print(f"Yedek Gemini de patladı ({e}), OpenRouter'a geçiliyor...")
-
-    # 3. HAT: OPENROUTER (ÜCRETSİZ / SINIRSIZ LLAMA MODELİ)
-    if OPENROUTER_API_KEY:
+    # 2. OpenRouter Yedek
+    if OPENROUTER_API_KEY and OPENROUTER_API_KEY.strip():
         try:
             return call_openrouter(history, full_prompt)
         except Exception as e:
-            print(f"OpenRouter da patladı ({e}).")
+            print(f"OpenRouter hatası: {e}")
 
-    raise Exception("Tüm servisler (Gemini-1, Gemini-2, OpenRouter) tükendi veya yapılandırılmadı!")
+    raise Exception("API Key'ler okunamadı veya geçersiz. Render Environment Variables kısmını kontrol et!")
 
 @bot.callback_query_handler(func=lambda call: call.data == "btn_restart")
 def restart_callback(call):
