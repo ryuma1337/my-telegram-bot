@@ -1,4 +1,4 @@
 pyTelegramBotAPI
 Flask
 requests
-google-generativeai
+google-genai==1.0.0
