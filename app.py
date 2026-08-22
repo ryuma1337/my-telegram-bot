@@ -56,7 +56,8 @@ def chat_ai(message):
         bot.reply_to(message, "⚠️ GEMINI_API_KEY bulunamadı! Render Environment sekmesinden ekleyin.")
         return
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY.strip()}"
+    # Güncel Gemini 2.0 Flash Endpoint'i
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY.strip()}"
     
     payload = {
         "contents": [
@@ -65,19 +66,36 @@ def chat_ai(message):
                     {"text": f"{system_prompt}\n\nKullanıcı: {user_input}"}
                 ]
             }
+        ],
+        "safetySettings": [
+            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
         ]
     }
 
     try:
-        res = requests.post(url, json=payload, timeout=12)
+        res = requests.post(url, json=payload, timeout=15)
         if res.status_code == 200:
             data = res.json()
-            ai_msg = data['candidates'][0]['content']['parts'][0]['text']
-            bot.reply_to(message, ai_msg)
+            try:
+                ai_msg = data['candidates'][0]['content']['parts'][0]['text']
+                bot.reply_to(message, ai_msg)
+            except (KeyError, IndexError):
+                bot.reply_to(message, "⚠️ Yanıt oluşturulamadı (İçerik filtresine takılmış olabilir).")
         else:
-            bot.reply_to(message, f"⚠️ API Hatası: KOD {res.status_code}")
+            # Yedek Model Denemesi (gemini-1.5-flash-8b)
+            fallback_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-8b:generateContent?key={GEMINI_API_KEY.strip()}"
+            res_fb = requests.post(fallback_url, json=payload, timeout=15)
+            if res_fb.status_code == 200:
+                data_fb = res_fb.json()
+                ai_msg = data_fb['candidates'][0]['content']['parts'][0]['text']
+                bot.reply_to(message, ai_msg)
+            else:
+                bot.reply_to(message, f"⚠️ API Hatası: KOD {res.status_code} - {res.text}")
     except Exception as e:
-        bot.reply_to(message, "⚠️ Bağlantı kurulamadı. Lütfen tekrar deneyin.")
+        bot.reply_to(message, "⚠️ Bağlantı zaman aşımına uğradı, tekrar deneyin.")
 
 def start_polling():
     try:
