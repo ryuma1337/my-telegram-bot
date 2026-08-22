@@ -99,7 +99,7 @@ def chat_ai(message):
             ]
         )
 
-        # Hesabındaki aktif çalışan modelleri otomatik sorgula
+        # Otomatik Model Taraması
         available_models = []
         for m in client.models.list():
             if "generateContent" in getattr(m, "supported_actions", []):
@@ -108,7 +108,6 @@ def chat_ai(message):
         if not available_models:
             available_models = ["gemini-2.5-flash", "gemini-1.5-flash"]
 
-        # Bulunan ilk aktif modelle içeriği üret
         for model_name in available_models:
             try:
                 response = client.models.generate_content(
@@ -119,10 +118,10 @@ def chat_ai(message):
                 if response and response.text:
                     bot.reply_to(message, response.text)
                     return
-            except Exception as model_err:
+            except Exception:
                 continue
 
-        bot.reply_to(message, "⚠️ Yanıt oluşturulamadı (İçerik filtresine takılmış olabilir).")
+        bot.reply_to(message, "⚠️ Yanıt oluşturulamadı.")
 
     except Exception as e:
         bot.reply_to(message, f"⚠️ Bağlantı Hatası: {str(e)}")
