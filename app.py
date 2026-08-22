@@ -9,7 +9,6 @@ from telebot import TeleBot, types
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# Gemini API Yapılandırması
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY.strip())
 
@@ -34,7 +33,6 @@ PROMPTS = {
 
 user_modes = {}
 
-# Güvenlik Filtrelerini Tamamen Kapatma (NSFW Modu İçin)
 SAFETY_SETTINGS = [
     {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
     {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
@@ -71,8 +69,8 @@ def chat_ai(message):
     full_prompt = f"{system_prompt}\n\nKullanıcı: {user_input}"
 
     try:
-        # SDK üzerinden model çağrısı (404 hatasını imkansız kılar)
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        # Doğrudan istenen gemini-3.6-flash modeli
+        model = genai.GenerativeModel('gemini-3.6-flash')
         response = model.generate_content(
             full_prompt,
             safety_settings=SAFETY_SETTINGS
@@ -84,16 +82,7 @@ def chat_ai(message):
             bot.reply_to(message, "⚠️ İçerik filtresi yanıtı engelledi.")
             
     except Exception as e:
-        # Alternatif güncel model denemesi
-        try:
-            model_alt = genai.GenerativeModel('gemini-2.0-flash')
-            response_alt = model_alt.generate_content(
-                full_prompt,
-                safety_settings=SAFETY_SETTINGS
-            )
-            bot.reply_to(message, response_alt.text)
-        except Exception as err:
-            bot.reply_to(message, f"⚠️ API Hatası: {str(err)}")
+        bot.reply_to(message, f"⚠️ API Hatası: {str(e)}")
 
 def start_polling():
     try:
