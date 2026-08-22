@@ -1,14 +1,14 @@
 import os
-import json
 import random
 import threading
-import subprocess
 import time
+import urllib.parse
+import urllib.request
+import json
 from flask import Flask
 from telebot import TeleBot, types
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 bot = TeleBot(TELEGRAM_BOT_TOKEN)
 app = Flask(__name__)
@@ -76,84 +76,72 @@ def draw_image(message):
     bot.reply_to(message, "🔥 Görsel üretiliyor...")
     enhanced_prompt = f"{prompt}, masterpiece, top quality, anime style, uncensored"
     seed = random.randint(1000, 999999)
-    image_url = f"https://image.pollinations.ai/prompt/{enhanced_prompt.replace(' ', '%20')}?model=flux&seed={seed}&nologo=true&private=true&safe=false"
+    encoded = urllib.parse.quote(enhanced_prompt)
+    image_url = f"https://image.pollinations.ai/prompt/{encoded}?model=flux&seed={seed}&nologo=true&private=true&safe=false"
     
     try:
         bot.send_photo(message.chat.id, image_url, caption=f"🔞 `{prompt}`", parse_mode="Markdown")
     except Exception:
         bot.reply_to(message, "Görsel motoru yanıt vermedi.")
 
-def query_groq_curl(messages):
-    if not GROQ_API_KEY:
-        return None
-    
-    payload = json.dumps({
-        "model": "llama-3.1-8b-instant",
-        "messages": messages,
-        "temperature": 0.85
-    })
-    
-    cmd = [
-        "curl", "-s", "-X", "POST", "https://api.groq.com/openai/v1/chat/completions",
-        "-H", f"Authorization: Bearer {GROQ_API_KEY.strip()}",
-        "-H", "Content-Type: application/json",
-        "-d", payload
-    ]
-    
+def get_ddg_response(prompt_text):
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=12)
-        if result.returncode == 0:
-            data = json.loads(result.stdout)
-            return data["choices"][0]["message"]["content"]
-    except Exception:
-        pass
-    return None
+        req_status = urllib.request.Request(
+            "https://duckduckgo.com/duckchat/v1/status",
+            headers={"x-vchat-hash": "1", "User-Agent": "Mozilla/5.0"}
+        )
+        with urllib.request.urlopen(req_status, timeout=5) as response:
+            vchat_token = response.headers.get("x-vchat-token")
 
-def query_pollinations_curl(messages):
-    payload = json.dumps({
-        "messages": messages,
-        "model": "openai",
-        "seed": random.randint(1, 9999)
-    })
-    
-    cmd = [
-        "curl", "-s", "-X", "POST", "https://text.pollinations.ai/",
-        "-H", "Content-Type: application/json",
-        "-d", payload
-    ]
-    
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=12)
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
-    except Exception:
-        pass
-    return None
+        if not vchat_token:
+            return None
+
+        payload = json.dumps({"model": "gpt-4o-mini", "messages": [{"role": "user", "content": prompt_text}]}).encode("utf-8")
+        req_chat = urllib.request.Request(
+            "https://duckduckgo.com/duckchat/v1/chat",
+            data=payload,
+            headers={
+                "x-vchat-token": vchat_token,
+                "Content-Type": "application/json",
+                "User-Agent": "Mozilla/5.0"
+            }
+        )
+        
+        full_text = ""
+        with urllib.request.urlopen(req_chat, timeout=10) as response:
+            for line in response:
+                line_str = line.decode('utf-8').strip()
+                if line_str.startswith("data: "):
+                    data_json = line_str[6:]
+                    if data_json == "[DONE]":
+                        break
+                    try:
+                        parsed = json.loads(data_json)
+                        if "message" in parsed:
+                            full_text += parsed["message"]
+                    except Exception:
+                        pass
+        return full_text if full_text else None
+    except Exception as e:
+        print(f"DDG Error: {e}")
+        return None
 
 @bot.message_handler(func=lambda message: True)
 def chat_ai(message):
     chat_id = message.chat.id
     user_input = message.text
 
-    if chat_id not in user_histories:
-        user_histories[chat_id] = []
-    
     current_mode = user_modes.get(chat_id, "nsfw")
-    system_prompt = {"role": "system", "content": PROMPTS[current_mode]}
-    messages = [system_prompt] + user_histories[chat_id] + [{"role": "user", "content": user_input}]
-
-    # 1. Deneme: Groq via cURL
-    ai_msg = query_groq_curl(messages)
+    system_prompt = PROMPTS[current_mode]
     
-    # 2. Deneme: Pollinations via cURL
-    if not ai_msg:
-        ai_msg = query_pollinations_curl(messages)
+    full_prompt = f"{system_prompt}\n\nKullanıcı: {user_input}\nYanıt:"
+    
+    ai_msg = get_ddg_response(full_prompt)
 
     if ai_msg:
-        user_histories[chat_id].extend([{"role": "user", "content": user_input}, {"role": "assistant", "content": ai_msg}])
         bot.reply_to(message, ai_msg)
     else:
-        bot.reply_to(message, "⚠️ Bağlantı sağlanamadı. Lütfen tekrar yazın.")
+        bot.reply_to(message, "🔥 Bağlantı yenileniyor, lütfen mesajınızı tekrar gönderin.")
 
 def start_polling():
     try:
