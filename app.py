@@ -18,8 +18,8 @@ bot = TeleBot(TELEGRAM_BOT_TOKEN)
 app = Flask(__name__)
 
 GEMINI_MODEL_NAME = "gemini-3.6-flash"
-# Groq tarafında çalışan %100 güncel ve hızlı model
-GROQ_MODEL_NAME = "llama-3.1-8b-instant"
+# Groq üzerinde sırasıyla denenecek yedek modeller
+GROQ_MODELS = ["llama3-8b-8192", "llama3-70b-8192", "mixtral-8x7b-32768", "gemma2-9b-it"]
 
 @app.route('/')
 def home():
@@ -86,28 +86,34 @@ def get_ai_response(chat_id, history, system_prompt):
         except Exception as e:
             print(f"Gemini Hatası ({e}), Groq sistemine geçiliyor...")
 
-    # 2. DENEME: GROQ (GÜNCEL MODEL)
+    # 2. DENEME: GROQ (Çoklu Model Desteği)
     if GROQ_API_KEY:
-        try:
-            groq_client = Groq(api_key=GROQ_API_KEY.strip())
-            groq_messages = [{"role": "system", "content": full_prompt}]
-            
-            for content in history:
-                role = "assistant" if content.role == "model" else "user"
-                text = content.parts[0].text if content.parts else ""
-                groq_messages.append({"role": role, "content": text})
+        groq_client = Groq(api_key=GROQ_API_KEY.strip())
+        groq_messages = [{"role": "system", "content": full_prompt}]
+        
+        for content in history:
+            role = "assistant" if content.role == "model" else "user"
+            text = content.parts[0].text if content.parts else ""
+            groq_messages.append({"role": role, "content": text})
 
-            completion = groq_client.chat.completions.create(
-                model=GROQ_MODEL_NAME,
-                messages=groq_messages,
-                temperature=0.8,
-                max_tokens=1000
-            )
-            return completion.choices[0].message.content
-        except Exception as groq_err:
-            raise Exception(f"Groq servisi yanıt vermedi: {groq_err}")
+        last_error = None
+        for model in GROQ_MODELS:
+            try:
+                completion = groq_client.chat.completions.create(
+                    model=model,
+                    messages=groq_messages,
+                    temperature=0.8,
+                    max_tokens=1000
+                )
+                return completion.choices[0].message.content
+            except Exception as groq_err:
+                last_error = groq_err
+                print(f"Groq model {model} başarısız oldu, bir sonrakine geçiliyor...")
+                continue
+                
+        raise Exception(f"Tüm Groq modelleri başarısız: {last_error}")
 
-    raise Exception("API anahtarları eksik veya yetersiz!")
+    raise Exception("Geçerli API anahtarı bulunamadı!")
 
 @bot.callback_query_handler(func=lambda call: call.data == "btn_restart")
 def restart_callback(call):
@@ -122,20 +128,16 @@ def send_welcome(message):
     bot.send_message(message.chat.id, text, reply_markup=get_main_keyboard(), parse_mode="Markdown")
 
 @bot.message_handler(func=lambda m: m.text == "🔄 YENİDEN BAŞLAT")
-def menu_restart(message): 
-    send_welcome(message)
+def menu_restart(message): send_welcome(message)
 
 @bot.message_handler(func=lambda m: m.text == "📸 FOTOĞRAF İSTE")
-def menu_photo(message): 
-    send_scene_photo(message)
+def menu_photo(message): send_scene_photo(message)
 
 @bot.message_handler(func=lambda m: m.text == "🎭 KARAKTER DEĞİŞTİR")
-def menu_scenario(message): 
-    change_scenario(message)
+def menu_scenario(message): change_scenario(message)
 
 @bot.message_handler(func=lambda m: m.text == "🎙️ SESLİ MOD AÇ/KAPAT")
-def menu_voice(message): 
-    toggle_voice(message)
+def menu_voice(message): toggle_voice(message)
 
 def toggle_voice(message):
     chat_id = message.chat.id
@@ -208,8 +210,7 @@ def chat_ai(message):
                 fp.seek(0)
                 bot.send_voice(chat_id, voice=fp)
     except Exception as e:
-        if history: 
-            history.pop()
+        if history: history.pop()
         send_error_notification(chat_id, e)
 
 if __name__ == "__main__":
