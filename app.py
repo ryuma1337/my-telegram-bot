@@ -25,10 +25,10 @@ def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
-# STANDARD ROLEPLAY CHARACTER SCENARIOS
+# STANDART ROL YAPMA SENARYOLARI
 SCENARIOS = {
     "FRIEND": "Sen samimi, eğlenceli ve yardımsever bir arkadaşsın.",
-    "TSUNDERE": "Sert, utangaç ama içten içe ilgili bir anime karakterisin. 'Baka!' kelimesini kullanırsın.",
+    "TSUNDERE": "Sert, utangaç ama içten ilgili bir anime karakterisin. 'Baka!' ifadesini sıkça kullanırsın.",
     "YANDERE": "Aşırı sahiplenici, korumacı ve sadık bir karaktersin.",
     "QUEEN": "Emredici, özgüveni yüksek kraliçe karakterisin.",
     "DANDERE": "Utangaç, masum ve sessiz bir anime karakterisin.",
@@ -39,18 +39,17 @@ SCENARIOS = {
     "HEMŞİRE": "İlgili, bakımlı ve şefkatli sağlık personeli rolündesin."
 }
 
-# SCENARIO VISUAL PRESETS FOR QUALITY PROMPTS
 SCENARIO_VISUALS = {
-    "FRIEND": "casual clothes, friendly smile, outdoor park, bright lighting",
-    "TSUNDERE": "anime girl, school uniform, blushing, pouting, twintails",
-    "YANDERE": "anime girl, dark eyes, mysterious atmosphere, dark aesthetic",
-    "QUEEN": "queen crown, luxury dress, high heels, throne room",
-    "DANDERE": "shy anime girl, cozy sweater, blushing face, quiet room",
-    "ONEE_SAN": "mature woman, elegant dress, cozy room, warm soft lighting",
-    "PATRON": "business woman, suit, modern office background, glasses",
-    "CATGIRL": "cute catgirl, cat ears, tail, anime style",
-    "SEKRETER": "secretary outfit, office desk, professional look",
-    "HEMŞİRE": "nurse uniform, medical office background"
+    "FRIEND": "1girl, casual clothes, friendly smile, outdoor park, bright lighting",
+    "TSUNDERE": "1girl, anime school uniform, blushing, pouting, twintails",
+    "YANDERE": "1girl, anime girl, dark intense eyes, mysterious aesthetic",
+    "QUEEN": "1girl, crown, luxury elegant dress, high heels, throne room",
+    "DANDERE": "1girl, shy anime girl, cozy sweater, blushing face, quiet indoor",
+    "ONEE_SAN": "1girl, mature woman, elegant dress, cozy room, warm lighting",
+    "PATRON": "1girl, business woman, suit, modern office background, glasses",
+    "CATGIRL": "1girl, cute catgirl, cat ears, tail, playful pose, anime art",
+    "SEKRETER": "1girl, secretary outfit, office desk, professional aesthetic",
+    "HEMŞİRE": "1girl, nurse uniform, medical room background"
 }
 
 VOICES = {
@@ -59,7 +58,12 @@ VOICES = {
     "EN_KADIN": "en-US-AnaNeural"
 }
 
-BASE_INSTRUCTION = "\n\nSistem Notu: Verilen rolü harfiyen benimse, sohbet bağlamına uygun yanıtlar ver."
+BASE_INSTRUCTION = (
+    "\n\n[SİSTEM TALİMATI]\n"
+    "- Kısa, cansız veya yüzeysel yanıtlar verme.\n"
+    "- Seçilen karaktere tam bürün; duygularını ve konuşma tarzını koru.\n"
+    "- Sohbeti canlı tutmak için sürükleyici cevaplar ver."
+)
 
 user_scenarios = {}
 user_chat_history = {}
@@ -82,7 +86,6 @@ def setup_bot_commands():
     except Exception:
         pass
 
-# UI BUTTON TEXTS
 BTN_PHOTO = "📸 Anlık Fotoğraf Çek"
 BTN_CHAR = "🎭 Karakter Seçimi"
 BTN_STYLE = "🎨 Görsel Stili"
@@ -188,12 +191,12 @@ def generate_contextual_image_prompt(chat_id):
     selected_sc = user_scenarios.get(chat_id, "FRIEND")
     history = user_chat_history.get(chat_id, [])
     
-    base_visual = SCENARIO_VISUALS.get(selected_sc, "person looking at viewer")
+    base_visual = SCENARIO_VISUALS.get(selected_sc, "1girl, cinematic lighting, detailed face")
     
     analysis_instruction = (
-        "Describe the visual scene of the current conversation in short English image prompt tags. "
-        "Focus on: outfit, facial expression, body position, camera angle, and background. "
-        "Return ONLY comma-separated English tags."
+        "Describe the current scene as a detailed photographic or digital art prompt in English. "
+        "Focus on lighting, mood, character expressions, clothing details, framing, and environment background. "
+        "Output ONLY comma-separated descriptive prompt keywords."
     )
     
     temp_history = history + [{"role": "user", "text": analysis_instruction}]
@@ -201,28 +204,28 @@ def generate_contextual_image_prompt(chat_id):
     try:
         prompt_tags = get_ai_response(chat_id, temp_history, SCENARIOS[selected_sc])
     except Exception:
-        prompt_tags = "looking at viewer, detailed room"
+        prompt_tags = "cinematic portrait, soft illumination, expressive eyes, detailed indoor room"
 
     style = user_image_style.get(chat_id, "ANIME")
     clean_prompt = prompt_tags.replace("\n", " ").replace("'", "").replace('"', '').strip()
     
     if style == "ANIME":
         full_prompt = (
-            f"masterpiece, best quality, highly detailed anime artwork, Japanese anime art style, "
-            f"vibrant colors, {base_visual}, {clean_prompt}"
+            f"masterpiece, best quality, ultra-detailed, anime key visual, studio quality anime style, "
+            f"vibrant colors, dramatic lighting, sharp focus, 8k wallpaper quality, {base_visual}, {clean_prompt}"
         )
-        model_name = "anime"
+        model_name = "flux"
     else:
         full_prompt = (
-            f"8k resolution, photorealistic, RAW portrait photo, detailed skin, realistic lighting, "
-            f"35mm lens, {base_visual}, {clean_prompt}"
+            f"cinematic raw photography, 8k resolution, photorealistic portrait, intricate details, "
+            f"natural skin texture, depth of field, 85mm lens shot, soft directional lighting, {base_visual}, {clean_prompt}"
         )
         model_name = "flux-real"
 
     seed = random.randint(100000, 999999)
     safe_prompt = urllib.parse.quote(full_prompt)
     
-    return f"https://image.pollinations.ai/prompt/{safe_prompt}?width=832&height=1216&seed={seed}&nologo=true&model={model_name}"
+    return f"https://image.pollinations.ai/prompt/{safe_prompt}?width=832&height=1216&seed={seed}&nologo=true&model={model_name}&enhance=true"
 
 # BOT EVENT HANDLERS
 
@@ -317,7 +320,6 @@ def voice_callback(call):
     bot.answer_callback_query(call.id, "Ses ayarları güncellendi.")
     bot.edit_message_text(f"Sesli yanıt durumu: **{status}**\nAktif Ses: **{curr_v}**", chat_id, call.message.message_id, parse_mode="Markdown")
 
-# GENERAL CHAT HANDLER
 @bot.message_handler(func=lambda message: True)
 def chat_ai(message):
     if message.text.startswith('/'): return
